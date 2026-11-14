@@ -1,4 +1,4 @@
-module logs-on-vps/browser
+module services-on-vps/logs/console
 
 go 1.26.3
 

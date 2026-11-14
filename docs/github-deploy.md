@@ -4,7 +4,7 @@ Bu rehber `.github/workflows/logs.yml` ile birebir eşleşir. Workflow repo'daki
 
 ## GitHub repo ve Environment
 
-Projeyi GitHub'daki kendi `logs-on-vps` repo'na koy. Ana dal `main` olmalı. Repo'da `Settings → Actions → General` altında GitHub Actions çalışmasına ve `actions/checkout` kullanılmasına izin verildiğini kontrol et. Varsayılan `Read repository contents` izni yeterlidir.
+Projeyi GitHub'daki kendi `services-on-vps` repo'na koy. Ana dal `main` olmalı. Repo'da `Settings → Actions → General` altında GitHub Actions çalışmasına ve `actions/checkout` kullanılmasına izin verildiğini kontrol et. Varsayılan `Read repository contents` izni yeterlidir.
 
 `Settings → Environments → New environment` yolundan **`logs-production`** oluştur. `Deployment branches and tags` bölümünde `Selected branches and tags` seçip `main` dalını ekle. Hesabında seçenek varsa `Required reviewers` ile manuel onay ekleyebilirsin; workflow bunu zorunlu tutmaz.
 
@@ -32,7 +32,7 @@ SSH parola ile giriş bu workflow'da desteklenmez. Repo, registry PAT'i, GHCR lo
 Mac'te bu repo'ya özel bir anahtar oluştur:
 
 ```sh
-ssh-keygen -t ed25519 -C 'github-actions-logs-on-vps' -f ~/.ssh/logs_on_vps_actions -N ''
+ssh-keygen -t ed25519 -C 'github-actions-services-on-vps' -f ~/.ssh/logs_on_vps_actions -N ''
 ```
 
 Public key'i mevcut SSH bağlantınla VPS'e ekle. IP/kullanıcı/anahtar yolu değiştiyse komutu güncelle:
@@ -127,7 +127,7 @@ Bu dosya zaten varsa üzerine yazma; `nano /opt/logs-on-vps/.env` ile düzenle. 
 
 ## İlk çalıştırma ve sonraki deploy'lar
 
-Secret'ları ve Environment'ı hazırladıktan sonra repository variable `LOGS_DEPLOY_ENABLED=true` olsun. GitHub'da `Actions → Logs CI and deploy → Run workflow` üzerinden `main` seçerek çalıştır. Workflow'un bu menüde görünmesi için dosyanın önce default branch'e push edilmiş olması gerekir.
+Secret'ları ve Environment'ı hazırladıktan sonra repository variable `LOGS_DEPLOY_ENABLED=true` olsun. GitHub'da `Actions → Services CI and deploy → Run workflow` üzerinden `main` seçerek çalıştır. Workflow'un bu menüde görünmesi için dosyanın önce default branch'e push edilmiş olması gerekir.
 
 PR'larda yalnız kontrol ve geçici Docker log testi çalışır. `main` push'ları ve `main` üzerinde manuel çalıştırmalar, kontroller geçince `logs-production` üzerinden deploy eder. Başka dalda manuel çalıştırma deploy etmez. Varsa Environment onayını GitHub'da sen verirsin.
 

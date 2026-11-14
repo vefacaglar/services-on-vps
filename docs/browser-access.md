@@ -15,7 +15,7 @@ Repo'da `Settings → Environments → logs-production → Environment secrets` 
 
 Şifreyi sohbete veya repo'ya koyma. Workflow şifreyi Caddy'ye stdin üzerinden verip bcrypt hash'i üretir. VPS'e yalnız kullanıcı adı ve hash içeren `services/logs/browser.env` dosyası gider; dosya modu `600`dür. Açık şifre komut argümanına veya dosyaya yazılmaz. `browser.env` ve üretilen `compose.override.yml` Git tarafından yok sayılır.
 
-Güncel dosyaları `main`e gönderip `Logs CI and deploy` workflow'unu çalıştır. Her iki secret da boşsa önceki loopback kurulumu devam eder. Yalnız biri girilmişse deploy hata verir. İkisi varsa korumalı browser servisi eklenir. İkisini birden kaldırmak sonraki deploy'da browser servisini kapatır; mevcut Caddy route'u bu durumda 502 verir, VictoriaLogs açığa çıkmaz.
+Güncel dosyaları `main`e gönderip `Services CI and deploy` workflow'unu çalıştır. Her iki secret da boşsa önceki loopback kurulumu devam eder. Yalnız biri girilmişse deploy hata verir. İkisi varsa korumalı browser servisi eklenir. İkisini birden kaldırmak sonraki deploy'da browser servisini kapatır; mevcut Caddy route'u bu durumda 502 verir, VictoriaLogs açığa çıkmaz.
 
 ## Ortak Docker ağı
 
@@ -37,7 +37,7 @@ Cloudflare DNS'te `logs` adında A kaydı oluştur; önceki VPS adresin değişm
 
 ## Otomatik Caddy kurulumu
 
-`main`e güncel kodu gönderip `Logs CI and deploy → Run workflow` çalıştırman yeterli. SSH kullanıcısı mevcut kalıcı Caddyfile'a yazabilmeli; VPS'te Python 3 bulunmalı. Workflow mevcut container'ın persistent mount'unu bulur, auth/API/Typesense bloklarını koruyarak yalnız [log domain route'unu](../services/logs/deploy/Caddyfile.example) ekler. Aynı route zaten varsa çoğaltmaz; başka bir servise giden mevcut log domain'ini sessizce değiştirmez.
+`main`e güncel kodu gönderip `Services CI and deploy → Run workflow` çalıştırman yeterli. SSH kullanıcısı mevcut kalıcı Caddyfile'a yazabilmeli; VPS'te Python 3 bulunmalı. Workflow mevcut container'ın persistent mount'unu bulur, auth/API/Typesense bloklarını koruyarak yalnız [log domain route'unu](../services/logs/deploy/Caddyfile.example) ekler. Aynı route zaten varsa çoğaltmaz; başka bir servise giden mevcut log domain'ini sessizce değiştirmez.
 
 Değişiklikten önce `/opt/logs-on-vps/caddy-backups/` altında dosya modu `600` olan yedek alınır. Dosyanın inode'u korunarak yazılır; tek dosya bind mount'unda da değişiklik görünür. Caddy doğrulaması ve reload başarısızsa eski dosya geri yazılıp tekrar yüklenir. Başka bir deployment aynı anda Caddyfile'ı değiştirmişse onun değişikliğinin üzerine yazılmaz ve workflow hata bildirir.
 

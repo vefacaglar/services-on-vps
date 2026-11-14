@@ -1,4 +1,4 @@
-name: Logs CI and deploy
+name: Services CI and deploy
 # Verifies and deploys every service under services/ (logs, Meilisearch).
 
 on:
