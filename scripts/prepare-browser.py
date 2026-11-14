@@ -11,11 +11,29 @@ import re
 import runpy
 import subprocess
 import sys
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
 validate_meili_key = runpy.run_path(str(ROOT / "scripts/prepare-meilisearch.py"))["validate_key"]
 CADDY_IMAGE = "caddy:2-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9"
+
+
+def validate_postgres_url(dsn):
+    """A postgres:// DSN for the console's read-only PostgreSQL views.
+
+    Checked without echoing the value: errors never include the DSN.
+    """
+    if len(dsn.encode()) > 2048 or re.search(r"\s", dsn) or "\x00" in dsn:
+        raise ValueError("Set POSTGRES_READONLY_URL as one line without whitespace (at most 2048 bytes)")
+    try:
+        parts = urlsplit(dsn)
+        host, user = parts.hostname, parts.username
+        parts.port  # Raises on a non-numeric port.
+    except ValueError:
+        raise ValueError("POSTGRES_READONLY_URL is not a valid postgres:// URL") from None
+    if parts.scheme not in ("postgres", "postgresql") or not host or not user or parts.fragment:
+        raise ValueError("Set POSTGRES_READONLY_URL as postgres://user:password@host:5432/database")
 
 
 def prepare(destination, environment=None, hash_password=None):
@@ -32,12 +50,16 @@ def prepare(destination, environment=None, hash_password=None):
     if meili_key:
         # Lets the console's read-only Meilisearch views call it server-side.
         validate_meili_key(meili_key)
+    postgres_url = environment.get("POSTGRES_READONLY_URL", "")
+    if postgres_url:
+        validate_postgres_url(postgres_url)
     if hash_password is None:
         # The secret travels only via stdin, not command arguments or child env.
         child_env = dict(os.environ)
         child_env.pop("LOGS_UI_PASSWORD", None)
         child_env.pop("LOGS_UI_USERNAME", None)
         child_env.pop("MEILI_MASTER_KEY", None)
+        child_env.pop("POSTGRES_READONLY_URL", None)
         result = subprocess.run(
             ["docker", "run", "--rm", "-i", CADDY_IMAGE, "caddy", "hash-password"],
             input=(password + "\n").encode(), capture_output=True, env=child_env, check=False,
@@ -57,6 +79,8 @@ def prepare(destination, environment=None, hash_password=None):
     lines = f"LOGS_UI_USERNAME={username}\nLOGS_UI_PASSWORD_HASH={password_hash}\n"
     if meili_key:
         lines += f"MEILI_MASTER_KEY={meili_key}\n"
+    if postgres_url:
+        lines += f"POSTGRES_READONLY_URL={postgres_url}\n"
     credentials.write_text(lines)
     override = (ROOT / "services/logs/deploy/compose.browser.yml").read_text()
     network = environment.get("LOGS_PROXY_NETWORK", "")

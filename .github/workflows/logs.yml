@@ -39,7 +39,16 @@ jobs:
           cache-dependency-path: services/logs/console/go.sum
       - name: Verify log console and session authentication
         working-directory: services/logs/console
+        env:
+          POSTGRES_INTEGRATION: skip
         run: go test -race ./...
+      - name: Verify the read-only PostgreSQL inspector against PostgreSQL 17
+        # Starts a throwaway postgres:17 container, creates the documented
+        # read-only role and checks that SQL-editor writes are rejected.
+        working-directory: services/logs/console
+        env:
+          POSTGRES_INTEGRATION: '1'
+        run: go test -race -run 'TestPostgresIntegration' -v ./...
       - name: Check deployment scripts
         run: |
           sh -n scripts/start.sh services/*/scripts/*.sh
@@ -101,6 +110,7 @@ jobs:
           LOGS_UI_USERNAME: ${{ secrets.LOGS_UI_USERNAME }}
           LOGS_UI_PASSWORD: ${{ secrets.LOGS_UI_PASSWORD }}
           MEILI_MASTER_KEY: ${{ secrets.MEILI_MASTER_KEY }}
+          POSTGRES_READONLY_URL: ${{ secrets.POSTGRES_READONLY_URL }}
           LOGS_PROXY_NETWORK: ${{ vars.LOGS_PROXY_NETWORK }}
           LOGS_CADDY_CONTAINER: ${{ vars.LOGS_CADDY_CONTAINER }}
           LOGS_CADDY_CONFIG_PATH: ${{ vars.LOGS_CADDY_CONFIG_PATH }}

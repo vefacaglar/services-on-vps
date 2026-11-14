@@ -6,7 +6,7 @@ Bu repo VPS'teki uygulamaların ortak kullandığı sunucu altyapısını tutar.
 
 | Servis | Dizin | Ne yapar |
 | --- | --- | --- |
-| Loglar | [services/logs](services/logs/README.md) | VictoriaLogs + Vector ile tüm container loglarını toplar; `logs.vefacaglar.com` üzerinde şifreli log konsolu ve `Sistem` sayfası (bellek, CPU, disk). |
+| Loglar | [services/logs](services/logs/README.md) | VictoriaLogs + Vector ile tüm container loglarını toplar; `logs.vefacaglar.com` üzerinde şifreli log konsolu ve `Sistem` sayfası (bellek, CPU, disk) ve salt okunur Meilisearch/PostgreSQL inceleyicileri ([PostgreSQL kurulumu](docs/postgres-inspector.md)). |
 | Meilisearch | [services/meilisearch](services/meilisearch/README.md) | Uygulamaların ortak arama motoru; ortak Docker ağında `http://meilisearch:7700`. |
 
 Typesense şimdilik elle kurulu kalır ve bu repo tarafından yönetilmez; uygulamalar Meilisearch'e taşınınca kaldırılacak.

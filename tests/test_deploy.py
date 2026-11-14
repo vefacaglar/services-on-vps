@@ -253,6 +253,38 @@ print('$2a$14$' + 'A' * 53)
         for line in (self.base / "calls").read_text().splitlines():
             self.assertNotIn(key, line)
 
+    def test_postgres_url_travels_only_in_private_browser_env(self):
+        dsn = "postgres://logs_console_ro:pg-secret-7731@postgres:5432/app"
+        self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599", POSTGRES_READONLY_URL=dsn)
+        fake_docker = self.bin / "docker"
+        fake_docker.write_text("""#!/usr/bin/env python3
+import os, sys
+assert 'POSTGRES_READONLY_URL' not in os.environ
+sys.stdin.read()
+print('$2a$14$' + 'A' * 53)
+""")
+        fake_docker.chmod(0o755)
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("pg-secret-7731", result.stdout + result.stderr)
+        with tarfile.open(self.base / "bundle.tar.gz") as bundle:
+            browser = bundle.getmember("services/logs/browser.env")
+            self.assertEqual(browser.mode & 0o777, 0o600)
+            self.assertIn(f"POSTGRES_READONLY_URL={dsn}\n", bundle.extractfile(browser).read().decode())
+            for other in bundle.getmembers():
+                if other.isfile() and other.name != browser.name:
+                    self.assertNotIn(b"pg-secret-7731", bundle.extractfile(other).read(), other.name)
+        for line in (self.base / "calls").read_text().splitlines():
+            self.assertNotIn("pg-secret-7731", line)
+
+    def test_invalid_postgres_url_stops_before_connecting(self):
+        self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599",
+                        POSTGRES_READONLY_URL="mysql://u:pg-secret-7731@db/app")
+        result = self.deploy()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("pg-secret-7731", result.stdout + result.stderr)
+        self.assertFalse((self.base / "calls").exists())
+
     def test_invalid_meilisearch_key_stops_before_connecting(self):
         for key in ["short", "has space in the middle!!", "newline-key-123456\n"]:
             self.env["MEILI_MASTER_KEY"] = key

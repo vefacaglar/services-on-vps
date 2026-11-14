@@ -30,18 +30,91 @@ const logsql = StreamLanguage.define({
     return null;
   },
 });
+const sqlKeywords = [
+  "SELECT",
+  "FROM",
+  "WHERE",
+  "AND",
+  "OR",
+  "NOT",
+  "IN",
+  "IS",
+  "NULL",
+  "LIKE",
+  "ILIKE",
+  "BETWEEN",
+  "JOIN",
+  "LEFT",
+  "RIGHT",
+  "INNER",
+  "OUTER",
+  "ON",
+  "USING",
+  "GROUP",
+  "BY",
+  "ORDER",
+  "HAVING",
+  "LIMIT",
+  "OFFSET",
+  "AS",
+  "DISTINCT",
+  "COUNT",
+  "SUM",
+  "AVG",
+  "MIN",
+  "MAX",
+  "WITH",
+  "UNION",
+  "ALL",
+  "CASE",
+  "WHEN",
+  "THEN",
+  "ELSE",
+  "END",
+  "DESC",
+  "ASC",
+  "EXPLAIN",
+  "SHOW",
+  "EXISTS",
+  "COALESCE",
+  "NOW",
+  "INTERVAL",
+  "TRUE",
+  "FALSE",
+];
+const sqlKeyword = new RegExp(`^(?:${sqlKeywords.join("|")})\\b`, "i");
+// A small SQL highlighter; full grammar support is not needed for a viewer.
+const sql = StreamLanguage.define({
+  token(stream) {
+    if (stream.eatSpace()) return null;
+    if (stream.match("--")) {
+      stream.skipToEnd();
+      return "comment";
+    }
+    if (stream.match(/^'(?:[^']|'')*'?/)) return "string";
+    if (stream.match(/^"(?:[^"]|"")*"?/)) return "propertyName";
+    if (stream.match(sqlKeyword)) return "keyword";
+    if (stream.match(/^\d+(?:\.\d+)?\b/)) return "number";
+    if (stream.match(/^[\w$]+/)) return null;
+    if (stream.match(/^(?:::|[-+*/<>=!|(),.;])+/)) return "operator";
+    stream.next();
+    return null;
+  },
+});
 export function QueryEditor({
   value,
   onChange,
   onRun,
   fields,
   wrap,
+  mode = "logsql",
 }: {
   value: string;
   onChange: (v: string) => void;
   onRun: () => void;
   fields: string[];
   wrap: boolean;
+  mode?: "logsql" | "sql";
 }) {
   const { theme, language, t } = usePreferences();
   const runRef = useRef(onRun);
@@ -50,6 +123,14 @@ export function QueryEditor({
     const complete = (context: CompletionContext) => {
       const word = context.matchBefore(/[\w._]*/);
       if (!word || (!word.text && !context.explicit)) return null;
+      if (mode === "sql")
+        return {
+          from: word.from,
+          options: [
+            ...fields.map((label) => ({ label, type: "property" })),
+            ...sqlKeywords.map((label) => ({ label, type: "keyword" })),
+          ],
+        };
       return {
         from: word.from,
         options: [
@@ -77,7 +158,7 @@ export function QueryEditor({
       document.querySelector<HTMLMetaElement>("meta[name=csp-nonce]")
         ?.content || "";
     return [
-      logsql,
+      mode === "sql" ? sql : logsql,
       syntaxHighlighting(
         HighlightStyle.define([
           { tag: tags.keyword, color: "var(--accent)" },
@@ -85,6 +166,7 @@ export function QueryEditor({
           { tag: tags.number, color: "var(--info)" },
           { tag: tags.propertyName, color: "var(--text)" },
           { tag: tags.operator, color: "var(--muted)" },
+          { tag: tags.comment, color: "var(--muted)", fontStyle: "italic" },
         ]),
       ),
       EditorView.contentAttributes.of({ "aria-label": t("query") }),
@@ -162,7 +244,7 @@ export function QueryEditor({
       ),
       ...(wrap ? [EditorView.lineWrapping] : []),
     ];
-  }, [theme, language, fields, wrap]);
+  }, [theme, language, fields, wrap, mode]);
   return (
     <CodeMirror
       theme="none"

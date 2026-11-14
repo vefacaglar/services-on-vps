@@ -1,0 +1,197 @@
+/* PostgreSQL pages reuse Meilisearch.module.css; only extras live here. */
+.readOnly {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--success);
+  color: var(--success);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.readOnly::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.dbSelect {
+  margin-left: auto;
+  font-size: 13px;
+  padding: 5px 8px;
+  max-width: 50%;
+}
+.steps {
+  text-align: left;
+  max-width: 720px;
+  margin: 12px auto 0;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.version {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.queries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.queries li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.queries li:last-child {
+  border-bottom: 0;
+}
+.queryMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.filter {
+  width: min(280px, 100%);
+  font-size: 14px;
+}
+.sort {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sort:hover {
+  color: var(--accent);
+}
+.statement {
+  display: block;
+  white-space: pre-wrap;
+  font-size: 12px;
+  max-height: 7.5em;
+  overflow: hidden;
+}
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+}
+.list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.list li:last-child {
+  border-bottom: 0;
+}
+.definitions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.definitions li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.definitions li:last-child {
+  border-bottom: 0;
+}
+.definitions pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.definitionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 13px;
+}
+.tag {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+.warn {
+  border-color: var(--warning, var(--accent));
+  color: var(--warning, var(--accent));
+}
+.editor {
+  border: 1px solid var(--border);
+  padding: 18px;
+}
+.editor > p {
+  margin: 0 0 12px;
+}
+.editorTools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.editorTools > button:first-child {
+  margin-right: auto;
+}
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+}
+.historyItem {
+  padding: 14px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.historyItem code {
+  white-space: pre-wrap;
+  color: var(--accent);
+  font-size: 12px;
+}
+@media (max-width: 780px) {
+  .dbSelect {
+    margin-left: 0;
+    max-width: 100%;
+  }
+  .editor {
+    padding: 12px;
+  }
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .filter {
+    width: 100%;
+  }
+}
+.schema {
+  color: var(--muted);
+  font-weight: normal;
+}

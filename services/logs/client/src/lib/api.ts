@@ -5,6 +5,7 @@ export class ApiError extends Error {
   key: Key;
   status: number;
   code: string;
+  position?: number;
   constructor(key: Key, status = 0, details = "", code = "") {
     super(details);
     this.key = key;
@@ -17,10 +18,22 @@ const meiliKeys: Record<string, Key> = {
   unreachable: "meiliUnreachable",
   invalid_key: "meiliInvalidKey",
 };
-// Meilisearch routes return {error, code}; keep Meilisearch's own message
-// (e.g. an invalid filter) as details. Other routes keep generic messages.
-export async function meiliError(response: Response): Promise<ApiError> {
-  let body: { error?: string; code?: string } = {};
+const pgKeys: Record<string, Key> = {
+  not_configured: "pgNotConfigured",
+  invalid_config: "pgInvalidConfig",
+  unreachable: "pgUnreachable",
+  auth_failed: "pgAuthFailed",
+  too_many_connections: "pgTooManyConnections",
+};
+// Meilisearch and PostgreSQL routes return {error, code}; keep the engine's
+// own message (e.g. an invalid filter or SQL error) as details. Other routes
+// keep generic messages.
+export async function serviceError(
+  response: Response,
+  keys: Record<string, Key>,
+  rejected: Key,
+): Promise<ApiError> {
+  let body: { error?: string; code?: string; position?: number } = {};
   try {
     body = (await response.json()) as typeof body;
   } catch {
@@ -28,16 +41,23 @@ export async function meiliError(response: Response): Promise<ApiError> {
   }
   const code = body.code || "";
   const key: Key =
-    meiliKeys[code] ||
-    (response.status === 404
-      ? "meiliNotFound"
-      : response.status === 400
-        ? "meiliRequestRejected"
-        : "requestFailed");
-  const details =
-    meiliKeys[code] || !body.error ? "" : body.error.slice(0, 2000);
-  return new ApiError(key, response.status, details, code);
+    keys[code] ||
+    (code === "timeout"
+      ? "pgTimeout"
+      : code === "read_only"
+        ? "pgReadOnly"
+        : response.status === 404
+          ? "meiliNotFound"
+          : response.status === 400
+            ? rejected
+            : "requestFailed");
+  const details = keys[code] || !body.error ? "" : body.error.slice(0, 2000);
+  const error = new ApiError(key, response.status, details, code);
+  error.position = body.position;
+  return error;
 }
+export const meiliError = (response: Response) =>
+  serviceError(response, meiliKeys, "meiliRequestRejected");
 export async function api<T>(
   path: string,
   body?: unknown,
@@ -61,6 +81,8 @@ export async function api<T>(
   if (!response.ok) {
     if (response.status === 401) clearHistory();
     else if (path.startsWith("/api/meili/")) throw await meiliError(response);
+    else if (path.startsWith("/api/pg/"))
+      throw await serviceError(response, pgKeys, "queryError");
     const key: Key =
       response.status === 401
         ? path === "/api/login"
@@ -185,8 +207,13 @@ export function fieldsOf(rows: LogRow[]): string[] {
 export function quoted(value: string) {
   return JSON.stringify(value);
 }
-export function download(rows: LogRow[], format: "jsonl" | "csv") {
-  const fields = fieldsOf(rows);
+export function download(
+  rows: LogRow[],
+  format: "jsonl" | "csv",
+  columns?: string[],
+  name = "logs",
+) {
+  const fields = columns || fieldsOf(rows);
   const csv = (value: unknown) => `"${display(value).replaceAll('"', '""')}"`;
   const text =
     format === "jsonl"
@@ -203,7 +230,7 @@ export function download(rows: LogRow[], format: "jsonl" | "csv") {
   );
   const a = document.createElement("a");
   a.href = url;
-  a.download = `logs-${new Date().toISOString().slice(0, 19).replaceAll(":", "-")}.${format}`;
+  a.download = `${name}-${new Date().toISOString().slice(0, 19).replaceAll(":", "-")}.${format}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

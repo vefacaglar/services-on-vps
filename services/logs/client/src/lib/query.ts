@@ -53,7 +53,7 @@ export function legacyParams(hash: string) {
 export function signInDestination(next: string | null, hash = "") {
   const destination =
     next &&
-    /^\/(?:explore|overview|system|meilisearch(?:\/(?:tasks|keys|indexes\/[a-zA-Z0-9_-]{1,400}))?)?(?:\?|$)/.test(
+    /^\/(?:explore|overview|system|meilisearch(?:\/(?:tasks|keys|indexes\/[a-zA-Z0-9_-]{1,400}))?|postgres(?:\/db\/[^/?#\\]{1,400}(?:\/query|\/table\/[^/?#\\]{1,400}\/[^/?#\\]{1,400})?)?)?(?:\?|$)/.test(
       next,
     )
       ? next

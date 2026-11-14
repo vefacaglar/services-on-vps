@@ -31,6 +31,8 @@ export function CopyButton({
 }
 type Props = {
   rows: LogRow[];
+  /** Column order to keep (e.g. SQL results); all are shown by default. */
+  columns?: string[];
   groupBy?: string;
   wrap?: boolean;
   onFilter?: (key: string, value: string, exclude?: boolean) => void;
@@ -200,14 +202,16 @@ export function GroupView({
     </div>
   );
 }
-export function TableView({ rows, wrap = false, onFilter }: Props) {
+export function TableView({ rows, columns, wrap = false, onFilter }: Props) {
   const { t } = usePreferences();
-  const fields = useMemo(() => fieldsOf(rows), [rows]);
+  const fields = useMemo(() => columns || fieldsOf(rows), [rows, columns]);
   const [selected, setSelected] = useState<string[]>([]),
     [settings, setSettings] = useState(false);
   const visible = selected.length
     ? selected.filter((key) => fields.includes(key))
-    : fields.slice(0, 8);
+    : columns
+      ? fields
+      : fields.slice(0, 8);
   return (
     <>
       <div className={styles.viewTools}>

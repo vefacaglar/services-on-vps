@@ -140,6 +140,15 @@ class BrowserIntegrationTests(unittest.TestCase):
         self.assertIn(b'id="root"', page)
         self.assertEqual(self.request("/api/session", authenticated=True)[0], 200)
 
+    def test_postgres_views_report_missing_dsn_without_breaking_logs(self):
+        self.assertEqual(self.request("/api/pg/overview")[0], 401)
+        status, _, body = self.request("/api/pg/overview", authenticated=True)
+        self.assertEqual(status, 503, body)
+        self.assertEqual(json.loads(body)["code"], "not_configured")
+        status, _, page = self.request("/postgres/db/app/query", authenticated=True)
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="root"', page)
+
     def test_ingestion_and_system_endpoints_are_not_published(self):
         for path in ["/insert/jsonline", "/delete/0", "/metrics", "/flags", "/debug/pprof/", "/health"]:
             with self.subTest(path=path):

@@ -19,12 +19,22 @@ describe("query and navigation contracts", () => {
       "/meilisearch/tasks?status=failed",
       "/meilisearch/keys",
       "/meilisearch/indexes/products?tab=stats",
+      "/postgres",
+      "/postgres/db/app",
+      "/postgres/db/my%20db/query",
+      "/postgres/db/app/table/Sales%20Data/We%22ird?tab=indexes",
     ])
       expect(signInDestination(path)).toBe(path);
     for (const path of [
       "/meilisearch/indexes/a.b",
       "/meilisearch//evil.example",
       "/meilisearchx",
+      "/postgres/",
+      "/postgres/db",
+      "/postgres/db/app/other",
+      "/postgres/db/app/table/public",
+      "/postgres/db/a\\b",
+      "/postgresx",
     ])
       expect(signInDestination(path)).toBe("/");
   });

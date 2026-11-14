@@ -57,6 +57,28 @@ class BrowserBundleTests(unittest.TestCase):
                                          "MEILI_MASTER_KEY": key}, lambda _: TEST_HASH)
         self.assertFalse((self.directory / "browser.env").exists())
 
+    def test_postgres_url_is_added_only_to_private_browser_env(self):
+        dsn = "postgres://logs_console_ro:p%40ss-8841@postgres:5432/app?sslmode=disable"
+        environment = {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password", "POSTGRES_READONLY_URL": dsn}
+        self.assertTrue(prepare(self.directory, environment, lambda _: TEST_HASH))
+        credentials = self.directory / "browser.env"
+        self.assertTrue(credentials.read_text().endswith(f"POSTGRES_READONLY_URL={dsn}\n"))
+        self.assertEqual(credentials.stat().st_mode & 0o777, 0o600)
+        for other in self.directory.iterdir():
+            if other != credentials:
+                self.assertNotIn("p%40ss-8841", other.read_text(), other.name)
+
+    def test_unsafe_postgres_url_is_rejected_without_echoing_it(self):
+        for dsn in ["mysql://u:secret-pw@db/app", "postgres://u:secret-pw@db/app\nX=1", "postgres://:secret-pw@db/app",
+                    "postgres://u:secret-pw@/app", "postgres://u:secret-pw@db:port/app", "postgres://u:secret#pw@db/app",
+                    "postgres://u:secret-pw@db/" + "a" * 2100]:
+            with self.subTest(index=dsn[:12]):
+                with self.assertRaises(ValueError) as caught:
+                    prepare(self.directory, {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password",
+                                             "POSTGRES_READONLY_URL": dsn}, lambda _: TEST_HASH)
+                self.assertNotIn("secret", str(caught.exception))
+        self.assertFalse((self.directory / "browser.env").exists())
+
     def test_incomplete_credentials_and_config_injection_are_rejected(self):
         for environment in [
             {"LOGS_UI_USERNAME": "vefa"},

@@ -35,6 +35,8 @@ Domain tamamen bize ait React + TypeScript client'ı açar: Türkçe/İngilizce,
 
 `Meilisearch` sayfası ortak Meilisearch'ü salt okunur gösterir: sürüm, durum, veritabanı boyutu, index listesi, başarısız veya süren görevler, index swap geçmişi, index bazında belge arama/filtreleme (tablo veya JSON), ayarlar ve alan dağılımı, görevler ve API anahtarları. Tarayıcı Meilisearch'e hiç bağlanmaz; konsol yalnız izinli `/api/meili/*` uçlarını oturum ve aynı-köken kontrolüyle sunar ve Meilisearch'ü sunucu tarafında `MEILISEARCH_URL` (varsayılan `http://meilisearch:7700`, ortak proxy ağı) üzerinden master key ile çağırır. Genel proxy yoktur, yazma işlemi yapılmaz. Anahtarlar yalnız ilk 8 karakterleriyle döner; master key hiçbir yanıtta, hata mesajında veya logda görünmez. Deploy, `MEILI_MASTER_KEY` secret'ı varsa onu mod `600` olan `browser.env` dosyasına da ekler; secret yoksa sayfa "yapılandırılmamış" der, log konsolu etkilenmez. Meilisearch'te index alias'ı yoktur; sayfa bunun yerine `indexSwap` görevlerini (yeniden adlandırmalar dahil) listeler.
 
+`PostgreSQL` bölümü sunucudaki (bu repo tarafından yönetilmeyen) PostgreSQL'i salt okunur gösterir: genel durum ve uzun süren sorgular, veritabanları, tablo boyutları ve istatistikleri, kolon/index/kısıt/tetikleyici ayrıntıları, tablo satırları ve tek ifadelik SQL editörü (`EXPLAIN`, sorgu geçmişi, CSV/JSONL indirme). Bağlantı yalnız `POSTGRES_READONLY_URL` secret'ından gelir; her istek kendi kısa ömürlü bağlantısında `BEGIN READ ONLY` + zaman aşımlarıyla çalışır ve geri alınır, en fazla 3 bağlantı açılır, sonuçlar sınırlanır ve DSN hiçbir yanıtta görünmez. Rol SQL'i ve kurulum: [docs/postgres-inspector.md](../../docs/postgres-inspector.md).
+
 Mac'te ayrı terminalde tüneli açık tut:
 
 ```sh
