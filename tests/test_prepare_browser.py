@@ -58,15 +58,37 @@ class BrowserBundleTests(unittest.TestCase):
         self.assertFalse((self.directory / "browser.env").exists())
 
     def test_postgres_url_is_added_only_to_private_browser_env(self):
-        dsn = "postgres://logs_console_ro:p%40ss-8841@postgres:5432/app?sslmode=disable"
-        environment = {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password", "POSTGRES_READONLY_URL": dsn}
+        dsn = "postgres://logs_console:p%40ss-8841@postgres:5432/postgres?sslmode=disable"
+        environment = {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password", "POSTGRES_URL": dsn,
+                       "POSTGRES_READONLY_URL": "postgres://old:old-pw-1@postgres/app"}
         self.assertTrue(prepare(self.directory, environment, lambda _: TEST_HASH))
         credentials = self.directory / "browser.env"
-        self.assertTrue(credentials.read_text().endswith(f"POSTGRES_READONLY_URL={dsn}\n"))
+        self.assertTrue(credentials.read_text().endswith(f"POSTGRES_URL={dsn}\n"))
+        self.assertNotIn("old-pw-1", credentials.read_text())
         self.assertEqual(credentials.stat().st_mode & 0o777, 0o600)
         for other in self.directory.iterdir():
             if other != credentials:
                 self.assertNotIn("p%40ss-8841", other.read_text(), other.name)
+
+    def test_older_readonly_url_name_still_works(self):
+        dsn = "postgres://logs_console_ro:ro-8841@postgres:5432/postgres"
+        environment = {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password", "POSTGRES_READONLY_URL": dsn}
+        self.assertTrue(prepare(self.directory, environment, lambda _: TEST_HASH))
+        self.assertTrue((self.directory / "browser.env").read_text().endswith(f"POSTGRES_URL={dsn}\n"))
+
+    def test_write_switch_is_copied_only_when_set(self):
+        base = {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password"}
+        for value in ["", "true", "false"]:
+            with self.subTest(value=value):
+                self.assertTrue(prepare(self.directory, dict(base, POSTGRES_WRITE_ENABLED=value), lambda _: TEST_HASH))
+                text = (self.directory / "browser.env").read_text()
+                if value:
+                    self.assertIn(f"POSTGRES_WRITE_ENABLED={value}\n", text)
+                else:
+                    self.assertNotIn("POSTGRES_WRITE_ENABLED", text)
+        for value in ["False", "no", "true\nX=1"]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                prepare(self.directory, dict(base, POSTGRES_WRITE_ENABLED=value), lambda _: TEST_HASH)
 
     def test_unsafe_postgres_url_is_rejected_without_echoing_it(self):
         for dsn in ["mysql://u:secret-pw@db/app", "postgres://u:secret-pw@db/app\nX=1", "postgres://:secret-pw@db/app",
@@ -75,7 +97,7 @@ class BrowserBundleTests(unittest.TestCase):
             with self.subTest(index=dsn[:12]):
                 with self.assertRaises(ValueError) as caught:
                     prepare(self.directory, {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password",
-                                             "POSTGRES_READONLY_URL": dsn}, lambda _: TEST_HASH)
+                                             "POSTGRES_URL": dsn}, lambda _: TEST_HASH)
                 self.assertNotIn("secret", str(caught.exception))
         self.assertFalse((self.directory / "browser.env").exists())
 

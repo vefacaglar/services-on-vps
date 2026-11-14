@@ -24,11 +24,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Read-only PostgreSQL inspector. The browser never sees the DSN: every
-// /api/pg/* route is allowlisted here and runs fixed catalog queries (or one
-// user statement from the SQL editor) server-side.
+// PostgreSQL inspector with an opt-in write mode. The browser never sees the
+// DSN: every /api/pg/* route is allowlisted here and runs fixed catalog
+// queries (or one user statement from the SQL editor) server-side. One DSN
+// (POSTGRES_URL) serves both modes; reads and writes use separate connection
+// configs built from it. Writes live in postgres_write.go.
 //
-// Defence in depth, regardless of the role's own grants:
+// Read path, defence in depth regardless of the role's own grants:
 //   - every request uses its own short-lived connection, at most pgMaxConns at
 //     once, so no session state survives a request and the role's
 //     CONNECTION LIMIT is never exceeded;
@@ -38,7 +40,10 @@ import (
 //   - user SQL goes through the extended protocol, which rejects multiple
 //     statements;
 //   - rows, cell values and the response size are capped;
-//   - the DSN and password are scrubbed from every error.
+//   - the DSN and password are scrubbed from every error;
+//   - COPY and server-file/program functions are refused lexically in user
+//     SQL (best effort; see postgres_guard.go). The real protection is a
+//     non-superuser role, and the UI warns when connected as superuser.
 
 const (
 	pgMaxConns       = 3
@@ -52,13 +57,19 @@ const (
 )
 
 type pgState struct {
-	config  *pgx.ConnConfig // nil when POSTGRES_READONLY_URL is unset or invalid
+	config  *pgx.ConnConfig // read connections; nil when the DSN is unset or invalid
+	write   *pgx.ConnConfig // write-mode connections from the same DSN
 	invalid bool
-	secrets []string // DSN and password, scrubbed from every message
-	slots   chan struct{}
-	mu      sync.Mutex
-	dbs     []string
-	dbsAt   time.Time
+	// writeDisabled is the POSTGRES_WRITE_ENABLED=false kill switch.
+	writeDisabled bool
+	secrets       []string // DSN and password, scrubbed from every message
+	slots         chan struct{}
+	mu            sync.Mutex
+	dbs           []string
+	dbsAt         time.Time
+	// superuser is learned on the first successful connection.
+	superChecked bool
+	superuser    bool
 }
 
 type pgError struct {
@@ -71,6 +82,21 @@ type pgError struct {
 
 func (e *pgError) Error() string { return e.message }
 
+// postgresDSN picks POSTGRES_URL, falling back to the older
+// POSTGRES_READONLY_URL name.
+func postgresDSN(getenv func(string) string) string {
+	if dsn := getenv("POSTGRES_URL"); dsn != "" {
+		return dsn
+	}
+	return getenv("POSTGRES_READONLY_URL")
+}
+
+// postgresWriteEnabled reads the POSTGRES_WRITE_ENABLED kill switch: unset
+// or "true" enables write mode, anything else disables it (fail safe).
+func postgresWriteEnabled(value string) bool {
+	return value == "" || value == "true"
+}
+
 // configurePostgres parses the DSN once at startup. Errors are logged without
 // the DSN; pgx parse errors can quote it.
 func (s *server) configurePostgres(dsn string) {
@@ -82,7 +108,7 @@ func (s *server) configurePostgres(dsn string) {
 	config, err := pgx.ParseConfig(dsn)
 	if err != nil || (scheme != "postgres" && scheme != "postgresql") {
 		s.pg.invalid = true
-		log.Print("POSTGRES_READONLY_URL is invalid; PostgreSQL views are disabled")
+		log.Print("POSTGRES_URL is invalid; PostgreSQL views are disabled")
 		return
 	}
 	config.ConnectTimeout = 5 * time.Second
@@ -97,6 +123,12 @@ func (s *server) configurePostgres(dsn string) {
 		config.Database = "postgres"
 	}
 	s.pg.config = config
+	// Write mode: same server and role, but no read-only session default;
+	// every write transaction is still explicitly scoped and time-limited.
+	write := config.Copy()
+	write.RuntimeParams["application_name"] = "logs-console-write"
+	write.RuntimeParams["default_transaction_read_only"] = "off"
+	s.pg.write = write
 	s.pg.secrets = []string{dsn}
 	if config.Password != "" {
 		s.pg.secrets = append(s.pg.secrets, config.Password, url.QueryEscape(config.Password), url.PathEscape(config.Password))
@@ -151,7 +183,7 @@ func (s *server) pgClassify(err error) *pgError {
 		case pe.Code == "53300":
 			e.status, e.code = 503, "too_many_connections"
 		case pe.Code == "28P01" || pe.Code == "28000":
-			e.status, e.code, e.message = 502, "auth_failed", "PostgreSQL kimlik doğrulaması başarısız; POSTGRES_READONLY_URL değerini kontrol et."
+			e.status, e.code, e.message = 502, "auth_failed", "PostgreSQL kimlik doğrulaması başarısız; POSTGRES_URL değerini kontrol et."
 		case pe.Code == "3D000":
 			e.status, e.code = 404, "not_found"
 		}
@@ -169,20 +201,30 @@ func (s *server) pgClassify(err error) *pgError {
 	return &pgError{status: 502, message: "PostgreSQL isteği tamamlanamadı.", code: "request_failed"}
 }
 
-// pgConn opens a dedicated connection to db, bounded by the slot semaphore.
+// pgConn opens a dedicated read connection to db.
 func (s *server) pgConn(ctx context.Context, db string) (*pgx.Conn, func(), error) {
+	return s.pgConnect(ctx, s.pg.config, db)
+}
+
+// pgConnect opens a dedicated connection to db with base, bounded by the
+// shared slot semaphore (reads and writes together never exceed pgMaxConns).
+func (s *server) pgConnect(ctx context.Context, base *pgx.ConnConfig, db string) (*pgx.Conn, func(), error) {
 	select {
 	case s.pg.slots <- struct{}{}:
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
-	config := s.pg.config.Copy()
+	config := base.Copy()
 	config.Database = db
+	if notices, ok := ctx.Value(pgNoticesKey{}).(*pgNotices); ok {
+		config.OnNotice = func(_ *pgconn.PgConn, notice *pgconn.Notice) { notices.add(notice) }
+	}
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		<-s.pg.slots
 		return nil, nil, err
 	}
+	s.pgCheckSuperuser(ctx, conn)
 	release := func() {
 		closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_ = conn.Close(closeCtx)
@@ -190,6 +232,28 @@ func (s *server) pgConn(ctx context.Context, db string) (*pgx.Conn, func(), erro
 		<-s.pg.slots
 	}
 	return conn, release, nil
+}
+
+// pgCheckSuperuser records, once, whether the DSN's role is a superuser and
+// logs a warning if so. A failed check is retried on the next connection.
+func (s *server) pgCheckSuperuser(ctx context.Context, conn *pgx.Conn) {
+	s.pg.mu.Lock()
+	checked := s.pg.superChecked
+	s.pg.mu.Unlock()
+	if checked {
+		return
+	}
+	var super bool
+	if err := conn.QueryRow(ctx, `SELECT rolsuper FROM pg_roles WHERE rolname = current_user`).Scan(&super); err != nil {
+		return
+	}
+	s.pg.mu.Lock()
+	first := !s.pg.superChecked
+	s.pg.superChecked, s.pg.superuser = true, super
+	s.pg.mu.Unlock()
+	if first && super {
+		log.Print("WARNING: POSTGRES_URL connects as a PostgreSQL superuser; use a dedicated non-superuser role (docs/postgres-inspector.md)")
+	}
 }
 
 // pgRead runs fn in BEGIN READ ONLY with local timeouts and always rolls back.
@@ -303,8 +367,16 @@ func (s *server) pgAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1 && parts[0] == "overview":
 		route = "overview"
+	case len(parts) == 1 && parts[0] == "status":
+		route = "status"
+	case len(parts) == 4 && parts[0] == "db" && parts[2] == "write" && (parts[3] == "preview" || parts[3] == "commit"):
+		route, method = "write"+parts[3], "POST"
+	case len(parts) == 6 && parts[0] == "db" && parts[2] == "table" && parts[5] == "write":
+		route, method = "writerow", "POST"
 	case len(parts) == 2 && parts[0] == "db":
 		route = "db"
+	case len(parts) == 3 && parts[0] == "db" && parts[2] == "schema":
+		route = "schema"
 	case len(parts) == 3 && parts[0] == "db" && parts[2] == "query":
 		route, method = "query", "POST"
 	case len(parts) == 5 && parts[0] == "db" && parts[2] == "table":
@@ -319,19 +391,40 @@ func (s *server) pgAPI(w http.ResponseWriter, r *http.Request) {
 		fail(w, 405, "Bu yöntem desteklenmiyor.")
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), pgRequestTimeout)
+	defer cancel()
+	if route == "status" {
+		respond(w, 200, s.pgStatus(ctx))
+		return
+	}
+	if strings.HasPrefix(route, "write") && s.pg.writeDisabled {
+		respond(w, 403, map[string]string{"error": "Yazma modu bu sunucuda kapatıldı (POSTGRES_WRITE_ENABLED=false).", "code": "write_disabled"})
+		return
+	}
 	if s.pg.config == nil {
-		code, message := "not_configured", "PostgreSQL bu konsol için yapılandırılmamış (POSTGRES_READONLY_URL yok)."
+		code, message := "not_configured", "PostgreSQL bu konsol için yapılandırılmamış (POSTGRES_URL yok)."
 		if s.pg.invalid {
-			code, message = "invalid_config", "POSTGRES_READONLY_URL geçersiz; postgres:// biçiminde bir DSN olmalı."
+			code, message = "invalid_config", "POSTGRES_URL geçersiz; postgres:// biçiminde bir DSN olmalı."
 		}
 		respond(w, 503, map[string]string{"error": message, "code": code})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), pgRequestTimeout)
-	defer cancel()
 	var input pgQueryInput
-	if route == "query" && !decode(w, r, &input) {
-		return
+	var writeInput pgWriteInput
+	var rowInput pgRowInput
+	switch route {
+	case "query":
+		if !decode(w, r, &input) {
+			return
+		}
+	case "writepreview", "writecommit":
+		if !decode(w, r, &writeInput) {
+			return
+		}
+	case "writerow":
+		if !decode(w, r, &rowInput) {
+			return
+		}
 	}
 	db := ""
 	if route != "overview" {
@@ -357,6 +450,8 @@ func (s *server) pgAPI(w http.ResponseWriter, r *http.Request) {
 		result, err = s.pgOverview(ctx)
 	case "db":
 		result, err = s.pgDatabase(ctx, db)
+	case "schema":
+		result, err = s.pgSchema(ctx, db)
 	case "table":
 		result, err = s.pgTable(ctx, db, parts[3], parts[4])
 	case "rows":
@@ -369,6 +464,10 @@ func (s *server) pgAPI(w http.ResponseWriter, r *http.Request) {
 		result, err = s.pgRows(ctx, db, parts[3], parts[4], limit, offset)
 	case "query":
 		result, err = s.pgQuery(ctx, db, input)
+	case "writepreview", "writecommit":
+		result, err = s.pgWriteSQL(ctx, db, writeInput, route == "writecommit", s.pgActor(r))
+	case "writerow":
+		result, err = s.pgWriteRow(ctx, db, parts[3], parts[4], rowInput, s.pgActor(r))
 	}
 	if err != nil {
 		s.pgFail(w, err)
@@ -588,6 +687,75 @@ func (s *server) pgDatabase(ctx context.Context, db string) (any, error) {
 	return out, err
 }
 
+const pgSchemaTables = 2000
+
+type pgSchemaColumn struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Nullable bool   `json:"nullable"`
+	PK       bool   `json:"pk"`
+}
+
+// pgSchema lists relations and their columns for the editor's completion
+// and object explorer: {"schemas": {schema: {table: [{name, type, nullable,
+// pk}]}}, "kinds": {schema: {table: "table"|"view"|…}}, "truncated": bool}.
+func (s *server) pgSchema(ctx context.Context, db string) (any, error) {
+	schemas := map[string]map[string][]pgSchemaColumn{}
+	kinds := map[string]map[string]string{}
+	tables := 0
+	err := s.pgRead(ctx, db, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `WITH t AS (
+			SELECT c.oid, n.nspname, c.relname,
+			CASE c.relkind WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'f' THEN 'foreign table' ELSE 'table' END AS kind
+			FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f') AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+			ORDER BY n.nspname, c.relname LIMIT $1)
+			SELECT t.nspname, t.relname, t.kind, a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
+			EXISTS (SELECT 1 FROM pg_index x WHERE x.indrelid = t.oid AND x.indisprimary AND a.attnum = ANY (x.indkey))
+			FROM t LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum > 0 AND NOT a.attisdropped
+			ORDER BY t.nspname, t.relname, a.attnum`, pgSchemaTables+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var schema, table, kind string
+			var column, typ *string
+			var nullable, pk *bool
+			if err := rows.Scan(&schema, &table, &kind, &column, &typ, &nullable, &pk); err != nil {
+				return err
+			}
+			if schemas[schema] == nil {
+				schemas[schema] = map[string][]pgSchemaColumn{}
+				kinds[schema] = map[string]string{}
+			}
+			columns, seen := schemas[schema][table]
+			if !seen {
+				if tables++; tables > pgSchemaTables {
+					continue
+				}
+				columns = []pgSchemaColumn{}
+				kinds[schema][table] = kind
+			}
+			if column != nil && typ != nil {
+				columns = append(columns, pgSchemaColumn{Name: *column, Type: *typ, Nullable: nullable != nil && *nullable, PK: pk != nil && *pk})
+			}
+			schemas[schema][table] = columns
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	for name, tables := range schemas {
+		if len(tables) == 0 {
+			delete(schemas, name)
+			delete(kinds, name)
+		}
+	}
+	return map[string]any{"schemas": schemas, "kinds": kinds, "truncated": tables > pgSchemaTables}, nil
+}
+
 func scalar(ctx context.Context, tx pgx.Tx, sql string, args ...any) (any, error) {
 	var value any
 	err := tx.QueryRow(ctx, sql, args...).Scan(&value)
@@ -711,6 +879,35 @@ type pgResult struct {
 	DurationMs float64          `json:"durationMs"`
 	Command    string           `json:"command,omitempty"`
 	OrderBy    []string         `json:"orderBy,omitempty"`
+	Notices    []string         `json:"notices,omitempty"`
+}
+
+// pgNotices collects server notices (RAISE NOTICE, warnings) for one
+// request; attached through the context so each connection reports to it.
+type pgNotices struct {
+	mu   sync.Mutex
+	list []string
+}
+
+type pgNoticesKey struct{}
+
+func withNotices(ctx context.Context) (context.Context, *pgNotices) {
+	n := &pgNotices{}
+	return context.WithValue(ctx, pgNoticesKey{}, n), n
+}
+
+func (n *pgNotices) add(notice *pgconn.Notice) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.list) < 50 {
+		n.list = append(n.list, notice.Severity+": "+truncate(notice.Message))
+	}
+}
+
+func (n *pgNotices) all() []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]string(nil), n.list...)
 }
 
 // collectResult caps rows, cells and total size. stop aborts an unfinished
@@ -760,6 +957,11 @@ func collectResult(rows pgx.Rows, types *pgtype.Map, started time.Time, stop fun
 		}
 		result.Rows = append(result.Rows, row)
 	}
+	if stop == nil {
+		// Writes must finish: drain the rest instead of cancelling, so the
+		// command tag (rows affected) is complete.
+		rows.Close()
+	}
 	if err := rows.Err(); err != nil && !result.Truncated {
 		return nil, err
 	}
@@ -772,16 +974,19 @@ func collectResult(rows pgx.Rows, types *pgtype.Map, started time.Time, stop fun
 // protocol (DescribeExec) refuses multiple statements; the connection is
 // closed afterwards, so nothing the statement changes in the session survives.
 func (s *server) pgQuery(ctx context.Context, db string, input pgQueryInput) (any, error) {
-	sql := strings.TrimSpace(input.SQL)
-	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
-	if sql == "" || len(sql) > pgMaxSQL || !utf8.ValidString(sql) {
-		return nil, &pgError{status: 400, message: "Sorgu boş veya çok uzun.", code: "invalid_sql"}
+	sql, err := cleanSQL(input.SQL)
+	if err != nil {
+		return nil, err
+	}
+	if reason := analyzeSQL(sql).blocked; reason != "" {
+		return nil, blockedError(reason)
 	}
 	if input.Explain {
 		sql = "EXPLAIN " + sql
 	}
+	ctx, notices := withNotices(ctx)
 	var out *pgResult
-	err := s.pgRead(ctx, db, func(tx pgx.Tx) error {
+	err = s.pgRead(ctx, db, func(tx pgx.Tx) error {
 		queryCtx, stop := context.WithCancel(ctx)
 		defer stop()
 		started := time.Now()
@@ -796,17 +1001,34 @@ func (s *server) pgQuery(ctx context.Context, db string, input pgQueryInput) (an
 		err = nil // The aborted remainder of a capped result is expected.
 	}
 	if err != nil {
-		// Map the error position back onto the text the user typed.
-		shift := utf8.RuneCountInString(input.SQL) - utf8.RuneCountInString(strings.TrimLeftFunc(input.SQL, unicode.IsSpace))
+		shift := 0
 		if input.Explain {
-			shift -= len("EXPLAIN ")
+			shift = -len("EXPLAIN ")
 		}
-		if e := s.pgClassify(err); e.position > 0 {
-			if e.position += int32(shift); e.position < 1 {
-				e.position = 0
-			}
-			return nil, e
-		}
+		return nil, s.pgPositioned(err, input.SQL, shift)
 	}
-	return out, err
+	out.Notices = notices.all()
+	return out, nil
+}
+
+// cleanSQL trims whitespace and one trailing semicolon and checks the size.
+func cleanSQL(text string) (string, error) {
+	sql := strings.TrimSpace(text)
+	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
+	if sql == "" || len(sql) > pgMaxSQL || !utf8.ValidString(sql) {
+		return "", &pgError{status: 400, message: "Sorgu boş veya çok uzun.", code: "invalid_sql"}
+	}
+	return sql, nil
+}
+
+// pgPositioned maps an error position back onto the text the user typed.
+func (s *server) pgPositioned(err error, typed string, shift int) error {
+	shift += utf8.RuneCountInString(typed) - utf8.RuneCountInString(strings.TrimLeftFunc(typed, unicode.IsSpace))
+	if e := s.pgClassify(err); e.position > 0 {
+		if e.position += int32(shift); e.position < 1 {
+			e.position = 0
+		}
+		return e
+	}
+	return err
 }

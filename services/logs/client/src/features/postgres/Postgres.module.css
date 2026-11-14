@@ -137,30 +137,6 @@
   border-color: var(--warning, var(--accent));
   color: var(--warning, var(--accent));
 }
-.editor {
-  border: 1px solid var(--border);
-  padding: 18px;
-}
-.editor > p {
-  margin: 0 0 12px;
-}
-.editorTools {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-top: 16px;
-}
-.editorTools > button:first-child {
-  margin-right: auto;
-}
-.resultActions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 20px;
-}
 .historyItem {
   padding: 14px;
   text-align: left;
@@ -181,9 +157,6 @@
     margin-left: 0;
     max-width: 100%;
   }
-  .editor {
-    padding: 12px;
-  }
   .columns {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -194,4 +167,210 @@
 .schema {
   color: var(--muted);
   font-weight: normal;
+}
+
+/* Write mode: everything that can change data uses --error. */
+.writeBadge {
+  composes: readOnly;
+  border-color: var(--error);
+  color: var(--error);
+  font-weight: 600;
+}
+.superuser {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--error);
+  border-left-width: 4px;
+  color: var(--error);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.writeToggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  font-size: 13px;
+  color: var(--muted);
+}
+.writeToggle strong {
+  color: var(--heading);
+}
+.writeOn {
+  border: 1px solid var(--error);
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+}
+.writeOn strong {
+  color: var(--error);
+}
+.writeOn input {
+  accent-color: var(--error);
+}
+.danger {
+  background: var(--error);
+  border-color: var(--error);
+  color: var(--bg);
+}
+.danger:hover:not(:disabled) {
+  background: var(--heading);
+  border-color: var(--heading);
+  color: var(--bg);
+}
+.affected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  font-size: 16px;
+  color: var(--heading);
+}
+.affected code {
+  font-size: 12px;
+  color: var(--muted);
+}
+.confirmSQL {
+  margin: 0;
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dangerBox {
+  border: 1px solid var(--error);
+  padding: 12px 14px;
+  color: var(--error);
+  font-size: 13px;
+}
+.dangerBox ul {
+  margin: 0 0 12px;
+  padding-left: 18px;
+}
+.typeName {
+  flex-direction: column;
+  align-items: stretch !important;
+  gap: 6px !important;
+}
+.typeName input {
+  width: 100%;
+}
+.subhead {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: normal;
+}
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.editBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.editBar p {
+  margin: 0;
+}
+.editTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.editTable th,
+.editTable td {
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.editTable th {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-weight: normal;
+  white-space: nowrap;
+}
+.cellButton {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+.wrap .cellButton {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cellButton:hover:not(:disabled) {
+  border-color: var(--error);
+}
+.cellButton:disabled {
+  cursor: not-allowed;
+}
+.nullValue {
+  color: var(--muted);
+  font-style: italic;
+}
+.deleteRow {
+  padding: 7px 10px;
+  color: var(--error);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fieldHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.fieldHead label {
+  margin-left: auto;
+}
+.field textarea {
+  width: 100%;
+  resize: vertical;
+  font-size: 12px;
+}
+.rowIdentity {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.diff {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.diff dt {
+  color: var(--heading);
+}
+.diff dd {
+  margin: 0;
+}
+.diff pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

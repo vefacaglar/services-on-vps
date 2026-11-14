@@ -486,7 +486,11 @@ func main() {
 		s.meiliURL = p
 	}
 	s.meiliKey = os.Getenv("MEILI_MASTER_KEY")
-	s.configurePostgres(os.Getenv("POSTGRES_READONLY_URL"))
+	s.configurePostgres(postgresDSN(os.Getenv))
+	if !postgresWriteEnabled(os.Getenv("POSTGRES_WRITE_ENABLED")) {
+		s.pg.writeDisabled = true
+		log.Print("PostgreSQL write mode is disabled (POSTGRES_WRITE_ENABLED)")
+	}
 	address := os.Getenv("LOGS_LISTEN")
 	if address == "" {
 		address = ":8080"

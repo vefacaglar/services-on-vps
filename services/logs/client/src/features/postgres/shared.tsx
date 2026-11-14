@@ -6,6 +6,7 @@ import { ErrorMessage, PageHeading } from "../../app/Shell";
 import { api, ApiError } from "../../lib/api";
 import { formatBytes } from "../system/memory";
 import { apiPath, dbPath, type Overview } from "./pg";
+import { ModeBadge, SuperuserBanner } from "./Write";
 import meili from "../meilisearch/Meilisearch.module.css";
 import styles from "./Postgres.module.css";
 
@@ -65,7 +66,7 @@ export function useFormat() {
   };
 }
 
-/** Page heading with the read-only badge and the database switcher. */
+/** Page heading with the mode badge, superuser warning and database switcher. */
 export function PgHeading({
   title,
   eyebrow,
@@ -87,9 +88,7 @@ export function PgHeading({
         title={title || t("postgres")}
         eyebrow={eyebrow || t("pgIntro")}
       >
-        <span className={styles.readOnly} title={t("pgReadOnly")}>
-          {t("readOnly")}
-        </span>
+        <ModeBadge />
         {children}
       </PageHeading>
       <nav className={meili.subnav} aria-label={t("postgres")}>
@@ -120,6 +119,7 @@ export function PgHeading({
           </>
         )}
       </nav>
+      <SuperuserBanner />
     </>
   );
 }

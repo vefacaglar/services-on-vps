@@ -38,11 +38,12 @@ target="$VPS_USER@$VPS_HOST"
 release="$VPS_DEPLOY_DIR/releases/$DEPLOY_ID"
 
 # Generated secrets land in the same paths they take inside the release.
-# prepare-browser.py also copies MEILI_MASTER_KEY and POSTGRES_READONLY_URL
-# (when set) into the 0600 browser.env for the console's read-only views.
+# prepare-browser.py also copies MEILI_MASTER_KEY, POSTGRES_URL (or the older
+# POSTGRES_READONLY_URL) and the POSTGRES_WRITE_ENABLED switch (when set) into
+# the 0600 browser.env for the console's Meilisearch and PostgreSQL views.
 stage="$work_dir/stage"
 python3 scripts/prepare-browser.py "$stage/services/logs"
-unset LOGS_UI_PASSWORD LOGS_UI_USERNAME POSTGRES_READONLY_URL
+unset LOGS_UI_PASSWORD LOGS_UI_USERNAME POSTGRES_URL POSTGRES_READONLY_URL POSTGRES_WRITE_ENABLED
 python3 scripts/prepare-meilisearch.py "$stage/services/meilisearch"
 unset MEILI_MASTER_KEY
 

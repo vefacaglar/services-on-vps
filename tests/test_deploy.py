@@ -254,12 +254,13 @@ print('$2a$14$' + 'A' * 53)
             self.assertNotIn(key, line)
 
     def test_postgres_url_travels_only_in_private_browser_env(self):
-        dsn = "postgres://logs_console_ro:pg-secret-7731@postgres:5432/app"
-        self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599", POSTGRES_READONLY_URL=dsn)
+        dsn = "postgres://logs_console:pg-secret-7731@postgres:5432/postgres"
+        self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599", POSTGRES_URL=dsn,
+                        POSTGRES_WRITE_ENABLED="false")
         fake_docker = self.bin / "docker"
         fake_docker.write_text("""#!/usr/bin/env python3
 import os, sys
-assert 'POSTGRES_READONLY_URL' not in os.environ
+assert 'POSTGRES_URL' not in os.environ and 'POSTGRES_READONLY_URL' not in os.environ
 sys.stdin.read()
 print('$2a$14$' + 'A' * 53)
 """)
@@ -270,7 +271,9 @@ print('$2a$14$' + 'A' * 53)
         with tarfile.open(self.base / "bundle.tar.gz") as bundle:
             browser = bundle.getmember("services/logs/browser.env")
             self.assertEqual(browser.mode & 0o777, 0o600)
-            self.assertIn(f"POSTGRES_READONLY_URL={dsn}\n", bundle.extractfile(browser).read().decode())
+            env_text = bundle.extractfile(browser).read().decode()
+            self.assertIn(f"POSTGRES_URL={dsn}\n", env_text)
+            self.assertIn("POSTGRES_WRITE_ENABLED=false\n", env_text)
             for other in bundle.getmembers():
                 if other.isfile() and other.name != browser.name:
                     self.assertNotIn(b"pg-secret-7731", bundle.extractfile(other).read(), other.name)
@@ -279,7 +282,7 @@ print('$2a$14$' + 'A' * 53)
 
     def test_invalid_postgres_url_stops_before_connecting(self):
         self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599",
-                        POSTGRES_READONLY_URL="mysql://u:pg-secret-7731@db/app")
+                        POSTGRES_URL="mysql://u:pg-secret-7731@db/app")
         result = self.deploy()
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("pg-secret-7731", result.stdout + result.stderr)

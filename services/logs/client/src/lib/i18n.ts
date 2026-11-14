@@ -285,20 +285,21 @@ export const en = {
   readOnly: "Read-only",
   pgNotConfigured: "PostgreSQL is not configured for this console.",
   pgSetup1:
-    "Create a login role with pg_read_all_data and pg_monitor, read-only by default (the SQL is in docs/postgres-inspector.md).",
+    "Create a non-superuser login role with pg_read_all_data, pg_write_all_data and pg_monitor (the SQL is in docs/postgres-inspector.md).",
   pgSetup2:
-    "Add the GitHub secret POSTGRES_READONLY_URL as postgres://logs_console_ro:<password>@<host>:5432/postgres?sslmode=disable.",
+    "Add the GitHub secret POSTGRES_URL as postgres://logs_console:<password>@<postgres-container>:5432/postgres?sslmode=disable.",
   pgSetup3:
     "Deploy again. The DSN is stored only in the server's private browser.env and never reaches the browser.",
   pgInvalidConfig:
-    "POSTGRES_READONLY_URL is invalid; it must be a postgres:// DSN.",
+    "POSTGRES_URL is invalid; it must be a postgres:// DSN.",
   pgUnreachable:
-    "PostgreSQL is unreachable. Check the host in POSTGRES_READONLY_URL and the shared network.",
-  pgAuthFailed: "PostgreSQL rejected the credentials in POSTGRES_READONLY_URL.",
+    "PostgreSQL is unreachable. Check the host in POSTGRES_URL and the shared network.",
+  pgAuthFailed: "PostgreSQL rejected the credentials in POSTGRES_URL.",
   pgTooManyConnections:
     "PostgreSQL has no free connections for this role. Try again shortly.",
   pgTimeout: "The query took longer than the 5 second limit.",
-  pgReadOnly: "Not allowed: this console only reads.",
+  pgReadOnly:
+    "Not allowed in read-only mode. Turn on write mode to change data.",
   pgUptime: "Uptime",
   pgConnections: "Connections",
   pgCacheHit: "Cache hit",
@@ -368,6 +369,94 @@ export const en = {
   pgDisabled: "disabled",
   pgVersion: "Version",
   pgScanCount: "{count} scans",
+  writeMode: "Write mode",
+  pgWriteOn: "On: statements and row edits can change data.",
+  pgWriteOff: "Off: everything runs read-only.",
+  pgWriteDisabled:
+    "Write mode is turned off on this server (POSTGRES_WRITE_ENABLED=false).",
+  pgQueryHelpWrite:
+    "Write mode: one statement per run. It is first executed and rolled back to preview its effect; nothing changes until you confirm.",
+  pgPreview: "Preview",
+  pgConfirmWrite: "Confirm write",
+  pgWillAffect: "{count} rows will be affected",
+  pgPreviewRolledBack:
+    "The preview ran in a transaction that was rolled back; nothing has changed yet.",
+  pgDangerDDL:
+    "This is DDL or another statement that changes structure, permissions or code, not just rows.",
+  pgDangerNoWhere:
+    "UPDATE or DELETE without WHERE affects every row of the table.",
+  pgTypeDbName: "Type the database name {db} to confirm",
+  pgCommit: "Commit",
+  pgCancel: "Cancel",
+  pgCommitted: "Committed · {count} rows affected",
+  pgReturning: "Returned rows (preview)",
+  pgConfirmRequired: "The write needs an explicit confirmation.",
+  pgDbConfirmRequired:
+    "Type the database name to confirm this statement. Nothing was changed.",
+  pgRowsChanged:
+    "The affected row count changed since the preview. Nothing was changed; preview again.",
+  pgRowCount:
+    "The change would not touch exactly one row. Nothing was changed.",
+  pgNoPrimaryKey:
+    "This table has no primary key, so its rows cannot be edited here.",
+  pgNotATable: "Only tables can be edited row by row.",
+  pgTransactionControl:
+    "Transaction control (BEGIN, COMMIT, ROLLBACK, SAVEPOINT…) is not allowed; the console manages the transaction.",
+  pgBlocked:
+    "Blocked: COPY and functions that reach server files, programs or other servers are not allowed here.",
+  pgInvalidRow: "Invalid row change.",
+  pgSuperuser:
+    "Connected as a superuser. Use a dedicated non-superuser role (see docs/postgres-inspector.md).",
+  pgEditHint:
+    "Write mode: select a cell to edit it, or add and delete rows. Each change is confirmed first.",
+  pgAddRow: "Add row",
+  pgDeleteRow: "Delete",
+  pgActions: "Actions",
+  pgNullValue: "NULL",
+  pgSetNull: "Set to NULL",
+  pgUseDefault: "Leave empty to use the column default.",
+  pgReview: "Review",
+  pgBack2: "Back",
+  pgConfirmUpdate: "Update this value?",
+  pgConfirmInsert: "Insert this row?",
+  pgConfirmDelete: "Delete this row? This cannot be undone.",
+  pgRowIdentity: "Row {key}",
+  pgCurrentValue: "Current",
+  pgNewValue: "New",
+  pgCellTruncated:
+    "This value is shortened in the view and cannot be edited here; use the SQL editor.",
+  pgSaveCell: "Save…",
+  pgRowSaved: "Saved.",
+  pgPreviewMessage: "Preview: {count} rows would be affected. Rolled back; nothing changed yet.",
+  pgFormatFailed: "Could not format the SQL",
+  pgExplorer: "Object explorer",
+  pgQueryTabs: "Query tabs",
+  pgRenameTab: "Tab name",
+  pgRenameHint: "double-click to rename",
+  pgNewTab: "New query tab",
+  pgFormat: "Format",
+  pgFormatHint: "Formats the selection, or the whole query",
+  pgRunHint: "Ctrl/⌘ + Enter or F5; runs only the selection when there is one",
+  pgSelection: "selection",
+  pgResizeEditor: "Resize editor and results",
+  pgResults: "Results",
+  pgMessages: "Messages",
+  pgPlan: "Plan",
+  pgSeeMessages: "The statement failed; see Messages.",
+  pgNoPlan: "Use Explain to see the query plan.",
+  pgStatus: "Status",
+  pgRowsCount: "{count} rows",
+  pgCopyCell: "Copy cell",
+  pgCopyRow: "Copy row",
+  pgCopiedCell: "Cell copied.",
+  pgCopiedRow: "Row copied.",
+  pgClearSort: "Clear sort",
+  pgResizeColumn: "Resize column",
+  pgSchemaTruncated: "Only the first 2000 tables are listed.",
+  pgInsertName: "Insert into the editor",
+  pgSelectTop: "SELECT … LIMIT 100 in a new tab",
+  pgOpenTable: "Open table",
+  pgQueryTab: "Query",
 } as const;
 export type Key = keyof typeof en;
 export const tr: Record<Key, string> = {
@@ -659,21 +748,22 @@ export const tr: Record<Key, string> = {
   readOnly: "Salt okunur",
   pgNotConfigured: "PostgreSQL bu konsol için yapılandırılmamış.",
   pgSetup1:
-    "pg_read_all_data ve pg_monitor yetkili, varsayılanı salt okunur bir login rolü oluştur (SQL: docs/postgres-inspector.md).",
+    "pg_read_all_data, pg_write_all_data ve pg_monitor yetkili, superuser olmayan bir login rolü oluştur (SQL: docs/postgres-inspector.md).",
   pgSetup2:
-    "GitHub'a POSTGRES_READONLY_URL secret'ını postgres://logs_console_ro:<şifre>@<host>:5432/postgres?sslmode=disable biçiminde ekle.",
+    "GitHub'a POSTGRES_URL secret'ını postgres://logs_console:<şifre>@<postgres-container>:5432/postgres?sslmode=disable biçiminde ekle.",
   pgSetup3:
     "Yeniden deploy et. DSN yalnız sunucudaki özel browser.env dosyasında durur, tarayıcıya hiç gitmez.",
   pgInvalidConfig:
-    "POSTGRES_READONLY_URL geçersiz; postgres:// biçiminde bir DSN olmalı.",
+    "POSTGRES_URL geçersiz; postgres:// biçiminde bir DSN olmalı.",
   pgUnreachable:
-    "PostgreSQL'e ulaşılamıyor. POSTGRES_READONLY_URL içindeki host'u ve ortak ağı kontrol et.",
+    "PostgreSQL'e ulaşılamıyor. POSTGRES_URL içindeki host'u ve ortak ağı kontrol et.",
   pgAuthFailed:
-    "PostgreSQL, POSTGRES_READONLY_URL içindeki kimlik bilgilerini reddetti.",
+    "PostgreSQL, POSTGRES_URL içindeki kimlik bilgilerini reddetti.",
   pgTooManyConnections:
     "Bu rol için boş PostgreSQL bağlantısı yok. Birazdan tekrar dene.",
   pgTimeout: "Sorgu 5 saniyelik sınırı aştı.",
-  pgReadOnly: "İzin verilmiyor: bu konsol yalnız okur.",
+  pgReadOnly:
+    "Salt okunur modda izin verilmiyor. Veriyi değiştirmek için yazma modunu aç.",
   pgUptime: "Çalışma süresi",
   pgConnections: "Bağlantılar",
   pgCacheHit: "Önbellek isabeti",
@@ -743,6 +833,93 @@ export const tr: Record<Key, string> = {
   pgDisabled: "kapalı",
   pgVersion: "Sürüm",
   pgScanCount: "{count} tarama",
+  writeMode: "Yazma modu",
+  pgWriteOn: "Açık: ifadeler ve satır düzenlemeleri veriyi değiştirebilir.",
+  pgWriteOff: "Kapalı: her şey salt okunur çalışır.",
+  pgWriteDisabled:
+    "Yazma modu bu sunucuda kapatıldı (POSTGRES_WRITE_ENABLED=false).",
+  pgQueryHelpWrite:
+    "Yazma modu: her çalıştırmada tek ifade. Etkisini göstermek için önce çalıştırılıp geri alınır; sen onaylayana kadar hiçbir şey değişmez.",
+  pgPreview: "Önizle",
+  pgConfirmWrite: "Yazmayı onayla",
+  pgWillAffect: "{count} satır etkilenecek",
+  pgPreviewRolledBack:
+    "Önizleme geri alınan bir işlemde çalıştı; henüz hiçbir şey değişmedi.",
+  pgDangerDDL:
+    "Bu bir DDL veya yalnız satırları değil yapıyı, yetkileri ya da kodu değiştiren bir ifade.",
+  pgDangerNoWhere:
+    "WHERE olmadan UPDATE veya DELETE tablonun bütün satırlarını etkiler.",
+  pgTypeDbName: "Onaylamak için veritabanı adını ({db}) yaz",
+  pgCommit: "Uygula",
+  pgCancel: "Vazgeç",
+  pgCommitted: "Uygulandı · {count} satır etkilendi",
+  pgReturning: "Dönen satırlar (önizleme)",
+  pgConfirmRequired: "Yazmak için açık onay gerekiyor.",
+  pgDbConfirmRequired:
+    "Bu ifadeyi onaylamak için veritabanı adını yaz. Hiçbir şey değişmedi.",
+  pgRowsChanged:
+    "Etkilenen satır sayısı önizlemeden sonra değişti. Hiçbir şey değişmedi; yeniden önizle.",
+  pgRowCount: "Değişiklik tam olarak bir satırı etkilemiyor. Hiçbir şey değişmedi.",
+  pgNoPrimaryKey:
+    "Bu tablonun birincil anahtarı yok; satırları burada düzenlenemez.",
+  pgNotATable: "Satır satır yalnız tablolar düzenlenebilir.",
+  pgTransactionControl:
+    "İşlem kontrolü (BEGIN, COMMIT, ROLLBACK, SAVEPOINT…) kullanılamaz; işlemi konsol yönetir.",
+  pgBlocked:
+    "Engellendi: COPY ve sunucu dosyalarına, programlara veya başka sunuculara erişen fonksiyonlar burada kullanılamaz.",
+  pgInvalidRow: "Geçersiz satır değişikliği.",
+  pgSuperuser:
+    "Superuser ile bağlı. Ayrı, superuser olmayan bir rol kullan (bkz. docs/postgres-inspector.md).",
+  pgEditHint:
+    "Yazma modu: düzenlemek için bir hücre seç, satır ekle veya sil. Her değişiklik önce onaylanır.",
+  pgAddRow: "Satır ekle",
+  pgDeleteRow: "Sil",
+  pgActions: "İşlemler",
+  pgNullValue: "NULL",
+  pgSetNull: "NULL yap",
+  pgUseDefault: "Kolonun varsayılanını kullanmak için boş bırak.",
+  pgReview: "Gözden geçir",
+  pgBack2: "Geri",
+  pgConfirmUpdate: "Bu değer güncellensin mi?",
+  pgConfirmInsert: "Bu satır eklensin mi?",
+  pgConfirmDelete: "Bu satır silinsin mi? Geri alınamaz.",
+  pgRowIdentity: "Satır {key}",
+  pgCurrentValue: "Şimdiki",
+  pgNewValue: "Yeni",
+  pgCellTruncated:
+    "Bu değer görünümde kısaltıldı, burada düzenlenemez; SQL editörünü kullan.",
+  pgSaveCell: "Kaydet…",
+  pgRowSaved: "Kaydedildi.",
+  pgPreviewMessage: "Önizleme: {count} satır etkilenecek. Geri alındı; henüz hiçbir şey değişmedi.",
+  pgFormatFailed: "SQL biçimlendirilemedi",
+  pgExplorer: "Nesne gezgini",
+  pgQueryTabs: "Sorgu sekmeleri",
+  pgRenameTab: "Sekme adı",
+  pgRenameHint: "yeniden adlandırmak için çift tıkla",
+  pgNewTab: "Yeni sorgu sekmesi",
+  pgFormat: "Biçimlendir",
+  pgFormatHint: "Seçimi ya da sorgunun tamamını biçimlendirir",
+  pgRunHint: "Ctrl/⌘ + Enter veya F5; seçim varsa yalnız seçimi çalıştırır",
+  pgSelection: "seçim",
+  pgResizeEditor: "Editör ve sonuç alanını boyutlandır",
+  pgResults: "Sonuçlar",
+  pgMessages: "Mesajlar",
+  pgPlan: "Plan",
+  pgSeeMessages: "İfade başarısız oldu; Mesajlar'a bak.",
+  pgNoPlan: "Sorgu planını görmek için Explain'i kullan.",
+  pgStatus: "Durum",
+  pgRowsCount: "{count} satır",
+  pgCopyCell: "Hücreyi kopyala",
+  pgCopyRow: "Satırı kopyala",
+  pgCopiedCell: "Hücre kopyalandı.",
+  pgCopiedRow: "Satır kopyalandı.",
+  pgClearSort: "Sıralamayı kaldır",
+  pgResizeColumn: "Kolonu boyutlandır",
+  pgSchemaTruncated: "Yalnız ilk 2000 tablo listeleniyor.",
+  pgInsertName: "Editöre ekle",
+  pgSelectTop: "Yeni sekmede SELECT … LIMIT 100",
+  pgOpenTable: "Tabloyu aç",
+  pgQueryTab: "Sorgu",
 };
 export function translate(
   language: "tr" | "en",

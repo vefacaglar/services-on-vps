@@ -149,6 +149,22 @@ class BrowserIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b'id="root"', page)
 
+    def test_postgres_write_endpoints_report_missing_dsn(self):
+        status, _, body = self.request("/api/pg/status", authenticated=True)
+        self.assertEqual(status, 200, body)
+        report = json.loads(body)
+        self.assertFalse(report["configured"])
+        self.assertTrue(report["writeEnabled"])
+        for path, payload in [("/api/pg/db/app/write/preview", {"sql": "DELETE FROM t"}),
+                              ("/api/pg/db/app/write/commit", {"sql": "DELETE FROM t", "confirm": True}),
+                              ("/api/pg/db/app/table/public/t/write", {"op": "delete", "key": {"id": 1}, "confirm": True})]:
+            with self.subTest(path=path):
+                self.assertEqual(self.request(path, json_body=payload)[0], 401)
+                status, _, body = self.request(path, authenticated=True, json_body=payload)
+                self.assertEqual(status, 503, body)
+                self.assertEqual(json.loads(body)["code"], "not_configured")
+        self.assertEqual(self.request("/api/session", authenticated=True)[0], 200)
+
     def test_ingestion_and_system_endpoints_are_not_published(self):
         for path in ["/insert/jsonline", "/delete/0", "/metrics", "/flags", "/debug/pprof/", "/health"]:
             with self.subTest(path=path):

@@ -24,7 +24,19 @@ const pgKeys: Record<string, Key> = {
   unreachable: "pgUnreachable",
   auth_failed: "pgAuthFailed",
   too_many_connections: "pgTooManyConnections",
+  write_disabled: "pgWriteDisabled",
+  confirmation_required: "pgConfirmRequired",
+  database_confirmation_required: "pgDbConfirmRequired",
+  rows_changed: "pgRowsChanged",
+  row_count: "pgRowCount",
+  no_primary_key: "pgNoPrimaryKey",
+  not_a_table: "pgNotATable",
+  transaction_control: "pgTransactionControl",
+  blocked_statement: "pgBlocked",
+  invalid_row: "pgInvalidRow",
 };
+// Mapped codes whose server message names the offending function or column.
+const keepDetails = new Set(["blocked_statement", "invalid_row"]);
 // Meilisearch and PostgreSQL routes return {error, code}; keep the engine's
 // own message (e.g. an invalid filter or SQL error) as details. Other routes
 // keep generic messages.
@@ -51,7 +63,10 @@ export async function serviceError(
           : response.status === 400
             ? rejected
             : "requestFailed");
-  const details = keys[code] || !body.error ? "" : body.error.slice(0, 2000);
+  const details =
+    (keys[code] && !keepDetails.has(code)) || !body.error
+      ? ""
+      : body.error.slice(0, 2000);
   const error = new ApiError(key, response.status, details, code);
   error.position = body.position;
   return error;
@@ -209,7 +224,7 @@ export function quoted(value: string) {
 }
 export function download(
   rows: LogRow[],
-  format: "jsonl" | "csv",
+  format: "jsonl" | "csv" | "json",
   columns?: string[],
   name = "logs",
 ) {
@@ -218,14 +233,20 @@ export function download(
   const text =
     format === "jsonl"
       ? rows.map((row) => JSON.stringify(row)).join("\n") + "\n"
-      : [
+      : format === "json"
+        ? JSON.stringify(rows, null, 2) + "\n"
+        : [
           fields.map(csv).join(","),
           ...rows.map((row) => fields.map((key) => csv(row[key])).join(",")),
         ].join("\r\n");
   const url = URL.createObjectURL(
     new Blob([text], {
       type:
-        format === "jsonl" ? "application/x-ndjson" : "text/csv;charset=utf-8",
+        format === "jsonl"
+          ? "application/x-ndjson"
+          : format === "json"
+            ? "application/json"
+            : "text/csv;charset=utf-8",
     }),
   );
   const a = document.createElement("a");
