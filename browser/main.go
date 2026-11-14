@@ -40,6 +40,8 @@ type server struct {
 	loginAttempts                    []time.Time
 	loginSlot                        chan struct{}
 	querySlots                       chan struct{}
+	cgroupRoot, meminfoPath          string
+	sys                              systemState
 }
 
 func newServer(username, hash, upstream string, insecure bool) (*server, error) {
@@ -54,7 +56,8 @@ func newServer(username, hash, upstream string, insecure bool) (*server, error) 
 		return nil, fmt.Errorf("invalid VICTORIALOGS_URL")
 	}
 	s := &server{username: username, passwordHash: hash, upstream: upstream, insecure: insecure,
-		client: &http.Client{Timeout: 25 * time.Second}, sessions: make(map[[32]byte]time.Time), loginSlot: make(chan struct{}, 1), querySlots: make(chan struct{}, 2)}
+		client: &http.Client{Timeout: 25 * time.Second}, sessions: make(map[[32]byte]time.Time), loginSlot: make(chan struct{}, 1), querySlots: make(chan struct{}, 2),
+		cgroupRoot: "/host/cgroup", meminfoPath: "/proc/meminfo", sys: systemState{cpu: make(map[string]cpuSample)}}
 	s.proxy = httputil.NewSingleHostReverseProxy(u)
 	director := s.proxy.Director
 	s.proxy.Director = func(r *http.Request) {
@@ -361,8 +364,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		servePage(w, "index.html")
 		return
 	}
-	page := path == "/" || path == "/explore" || path == "/overview"
-	known := page || path == "/api/session" || path == "/api/logout" || path == "/api/logs" || path == "/api/services" || readAPI[path]
+	page := path == "/" || path == "/explore" || path == "/overview" || path == "/system"
+	known := page || path == "/api/session" || path == "/api/system" || path == "/api/logout" || path == "/api/logs" || path == "/api/services" || readAPI[path]
 	if !known {
 		http.NotFound(w, r)
 		return
@@ -384,6 +387,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		servePage(w, "index.html")
 	case path == "/api/session" && r.Method == "GET":
 		respond(w, 200, map[string]string{"username": s.username})
+	case path == "/api/system" && r.Method == "GET":
+		s.systemStatus(w, r)
 	case path == "/api/logout" && r.Method == "POST":
 		if !s.sameOrigin(r) {
 			fail(w, 403, "Geçersiz istek kaynağı.")
@@ -451,6 +456,12 @@ func main() {
 	s, err := newServer(os.Getenv("LOGS_UI_USERNAME"), os.Getenv("LOGS_UI_PASSWORD_HASH"), upstream, os.Getenv("LOGS_INSECURE_COOKIE") == "1")
 	if err != nil {
 		log.Fatal(err)
+	}
+	if p := os.Getenv("HOST_CGROUP_PATH"); p != "" {
+		s.cgroupRoot = p
+	}
+	if p := os.Getenv("HOST_MEMINFO_PATH"); p != "" {
+		s.meminfoPath = p
 	}
 	address := os.Getenv("LOGS_LISTEN")
 	if address == "" {

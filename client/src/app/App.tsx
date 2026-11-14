@@ -9,6 +9,7 @@ const Login = lazy(() => import("../features/auth/Login"));
 const Console = lazy(() => import("../features/logs/Console"));
 const Explore = lazy(() => import("../features/explore/Explore"));
 const Overview = lazy(() => import("../features/overview/Overview"));
+const System = lazy(() => import("../features/system/System"));
 function Loading() {
   const { t } = usePreferences();
   return (
@@ -50,6 +51,7 @@ export default function App() {
           <Route index element={<Console />} />
           <Route path="explore" element={<Explore />} />
           <Route path="overview" element={<Overview />} />
+          <Route path="system" element={<System />} />
         </Route>
         <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>

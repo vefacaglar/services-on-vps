@@ -29,6 +29,8 @@ Sunucuya bağlanmadan `https://logs.vefacaglar.com` üzerinden kullanıcı adı 
 
 Domain tamamen bize ait React + TypeScript client'ı açar: Türkçe/İngilizce, açık/koyu tema, sayfa içi giriş, servis/seviye/zaman filtreleri ve geçmiş kayıtlar. `Gelişmiş sorgu` aynı sekmede kendi LogsQL çalışma alanımızı açar; CodeMirror, grafik, gruplama, tablo/JSON, canlı akış ve export içerir. `Alanları incele` log alanları ve değerlerini gösterir. VictoriaLogs yalnız sorgu/depolama API'sidir; native arayüzü domain üzerinden yayınlanmaz. Mevcut kullanıcı adı/şifre secret'ları geçerlidir; Docker client ve Go binary'sini otomatik derler.
 
+`Sistem` sayfası sunucudaki toplam RAM'i ve hangi uygulamanın ne kadar bellek ve CPU kullandığını gösterir; 5 saniyede bir yenilenir. Container'lar ve host systemd servisleri (`docker`, `containerd`, `ssh` gibi) ayrı listelenir. Uygulama belleği `docker stats` gibi geri kazanılabilir dosya önbelleğini saymaz; CPU tek çekirdeğin yüzdesidir. Bunun için browser container'ına host'un `/sys/fs/cgroup` ağacı salt okunur bağlanır (`deploy/compose.browser.yml`); Docker socket'i verilmez. Container adları loglardan (`container_id` → `container_name`, son 7 gün) okunur, hiç log yazmamış container'lar kısa id'leriyle görünür. Linux cgroup v2 yoksa (ör. yerelde macOS) yalnız toplam bellek gösterilir.
+
 Mac'te ayrı terminalde tüneli açık tut:
 
 ```sh

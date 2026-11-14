@@ -52,7 +52,7 @@ export function legacyParams(hash: string) {
 }
 export function signInDestination(next: string | null, hash = "") {
   const destination =
-    next && /^\/(?:explore|overview)?(?:\?|$)/.test(next) ? next : "/";
+    next && /^\/(?:explore|overview|system)?(?:\?|$)/.test(next) ? next : "/";
   return destination.startsWith("/explore") && hash.startsWith("#/")
     ? destination + hash
     : destination;

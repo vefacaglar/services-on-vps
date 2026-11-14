@@ -119,6 +119,15 @@ class BrowserIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertIn("logs", json.loads(body))
 
+    def test_system_page_reads_host_cgroups(self):
+        self.assertEqual(self.request("/api/system")[0], 401)
+        status, _, body = self.request("/api/system", authenticated=True)
+        self.assertEqual(status, 200, body)
+        report = json.loads(body)
+        self.assertGreater(report["memory"]["total"], 0)
+        self.assertTrue(report["cgroupAvailable"], "read-only /sys/fs/cgroup mount missing or not cgroup v2")
+        self.assertTrue(any(group["kind"] == "container" for group in report["groups"]), report["groups"])
+
     def test_ingestion_and_system_endpoints_are_not_published(self):
         for path in ["/insert/jsonline", "/delete/0", "/metrics", "/flags", "/debug/pprof/", "/health"]:
             with self.subTest(path=path):

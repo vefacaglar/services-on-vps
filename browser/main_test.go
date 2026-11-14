@@ -208,7 +208,7 @@ func TestQueryPaginationFiltersAndProxyIsolation(t *testing.T) {
 func TestCustomClientRoutesAndNativeUIAreIsolated(t *testing.T) {
 	s := testServer(t, "http://localhost:9428", false)
 	c := signIn(t, s)
-	for _, path := range []string{"/", "/explore", "/overview"} {
+	for _, path := range []string{"/", "/explore", "/overview", "/system"} {
 		w := request(s, "GET", path, "", c)
 		if w.Code != 200 || !strings.Contains(w.Body.String(), `id="root"`) || strings.Contains(w.Body.String(), "__CSP_NONCE__") {
 			t.Fatalf("client route failed: %s %d", path, w.Code)
