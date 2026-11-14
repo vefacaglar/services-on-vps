@@ -42,6 +42,9 @@ type server struct {
 	querySlots                        chan struct{}
 	cgroupRoot, meminfoPath, diskPath string
 	sys                               systemState
+	meiliURL, meiliKey                string
+	meiliClient                       *http.Client
+	meiliSlots                        chan struct{}
 }
 
 func newServer(username, hash, upstream string, insecure bool) (*server, error) {
@@ -57,7 +60,9 @@ func newServer(username, hash, upstream string, insecure bool) (*server, error) 
 	}
 	s := &server{username: username, passwordHash: hash, upstream: upstream, insecure: insecure,
 		client: &http.Client{Timeout: 25 * time.Second}, sessions: make(map[[32]byte]time.Time), loginSlot: make(chan struct{}, 1), querySlots: make(chan struct{}, 2),
-		cgroupRoot: "/host/cgroup", meminfoPath: "/proc/meminfo", diskPath: "/", sys: systemState{cpu: make(map[string]cpuSample)}}
+		cgroupRoot: "/host/cgroup", meminfoPath: "/proc/meminfo", diskPath: "/", sys: systemState{cpu: make(map[string]cpuSample)},
+		meiliURL: "http://meilisearch:7700", meiliSlots: make(chan struct{}, 4),
+		meiliClient: &http.Client{Timeout: meiliTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	s.proxy = httputil.NewSingleHostReverseProxy(u)
 	director := s.proxy.Director
 	s.proxy.Director = func(r *http.Request) {
@@ -364,8 +369,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		servePage(w, "index.html")
 		return
 	}
-	page := path == "/" || path == "/explore" || path == "/overview" || path == "/system"
-	known := page || path == "/api/session" || path == "/api/system" || path == "/api/logout" || path == "/api/logs" || path == "/api/services" || readAPI[path]
+	page := path == "/" || path == "/explore" || path == "/overview" || path == "/system" || meiliPage(path)
+	meiliAPI := strings.HasPrefix(path, "/api/meili/")
+	known := page || meiliAPI || path == "/api/session" || path == "/api/system" || path == "/api/logout" || path == "/api/logs" || path == "/api/services" || readAPI[path]
 	if !known {
 		http.NotFound(w, r)
 		return
@@ -385,6 +391,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case page && r.Method == "GET":
 		servePage(w, "index.html")
+	case meiliAPI:
+		s.meiliAPI(w, r)
 	case path == "/api/session" && r.Method == "GET":
 		respond(w, 200, map[string]string{"username": s.username})
 	case path == "/api/system" && r.Method == "GET":
@@ -466,6 +474,13 @@ func main() {
 	if p := os.Getenv("HOST_DISK_PATH"); p != "" {
 		s.diskPath = p
 	}
+	if p := os.Getenv("MEILISEARCH_URL"); p != "" {
+		if err := validMeiliURL(p); err != nil {
+			log.Fatal(err)
+		}
+		s.meiliURL = p
+	}
+	s.meiliKey = os.Getenv("MEILI_MASTER_KEY")
 	address := os.Getenv("LOGS_LISTEN")
 	if address == "" {
 		address = ":8080"

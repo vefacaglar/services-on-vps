@@ -130,6 +130,16 @@ class BrowserIntegrationTests(unittest.TestCase):
         self.assertTrue(report["cgroupAvailable"], "read-only /sys/fs/cgroup mount missing or not cgroup v2")
         self.assertTrue(any(group["kind"] == "container" for group in report["groups"]), report["groups"])
 
+    def test_meilisearch_views_report_missing_key_without_breaking_logs(self):
+        self.assertEqual(self.request("/api/meili/overview")[0], 401)
+        status, _, body = self.request("/api/meili/overview", authenticated=True)
+        self.assertEqual(status, 503, body)
+        self.assertEqual(json.loads(body)["code"], "not_configured")
+        status, _, page = self.request("/meilisearch", authenticated=True)
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="root"', page)
+        self.assertEqual(self.request("/api/session", authenticated=True)[0], 200)
+
     def test_ingestion_and_system_endpoints_are_not_published(self):
         for path in ["/insert/jsonline", "/delete/0", "/metrics", "/flags", "/debug/pprof/", "/health"]:
             with self.subTest(path=path):

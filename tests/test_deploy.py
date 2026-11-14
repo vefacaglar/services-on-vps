@@ -228,6 +228,31 @@ print('$2a$14$' + 'A' * 53)
         for line in (self.base / "calls").read_text().splitlines():
             self.assertNotIn(key, line)
 
+    def test_console_receives_meilisearch_key_in_private_browser_env(self):
+        key = "meili-test-master-key-8841"
+        self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599", MEILI_MASTER_KEY=key)
+        fake_docker = self.bin / "docker"
+        fake_docker.write_text("""#!/usr/bin/env python3
+import os, sys
+assert 'MEILI_MASTER_KEY' not in os.environ
+sys.stdin.read()
+print('$2a$14$' + 'A' * 53)
+""")
+        fake_docker.chmod(0o755)
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(key, result.stdout + result.stderr)
+        private = {"services/logs/browser.env", "services/meilisearch/meilisearch.env"}
+        with tarfile.open(self.base / "bundle.tar.gz") as bundle:
+            browser = bundle.getmember("services/logs/browser.env")
+            self.assertEqual(browser.mode & 0o777, 0o600)
+            self.assertIn(f"MEILI_MASTER_KEY={key}\n", bundle.extractfile(browser).read().decode())
+            for other in bundle.getmembers():
+                if other.isfile() and other.name not in private:
+                    self.assertNotIn(key.encode(), bundle.extractfile(other).read(), other.name)
+        for line in (self.base / "calls").read_text().splitlines():
+            self.assertNotIn(key, line)
+
     def test_invalid_meilisearch_key_stops_before_connecting(self):
         for key in ["short", "has space in the middle!!", "newline-key-123456\n"]:
             self.env["MEILI_MASTER_KEY"] = key

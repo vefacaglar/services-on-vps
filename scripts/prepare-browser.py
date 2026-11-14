@@ -8,11 +8,13 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import subprocess
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+validate_meili_key = runpy.run_path(str(ROOT / "scripts/prepare-meilisearch.py"))["validate_key"]
 CADDY_IMAGE = "caddy:2-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9"
 
 
@@ -26,11 +28,16 @@ def prepare(destination, environment=None, hash_password=None):
         raise ValueError("Set LOGS_UI_USERNAME using 1-64 letters, digits, underscores or hyphens")
     if not 12 <= len(password.encode()) <= 72 or password != password.strip() or "\n" in password or "\r" in password:
         raise ValueError("Set LOGS_UI_PASSWORD using 12-72 UTF-8 bytes without newlines or surrounding whitespace")
+    meili_key = environment.get("MEILI_MASTER_KEY", "")
+    if meili_key:
+        # Lets the console's read-only Meilisearch views call it server-side.
+        validate_meili_key(meili_key)
     if hash_password is None:
         # The secret travels only via stdin, not command arguments or child env.
         child_env = dict(os.environ)
         child_env.pop("LOGS_UI_PASSWORD", None)
         child_env.pop("LOGS_UI_USERNAME", None)
+        child_env.pop("MEILI_MASTER_KEY", None)
         result = subprocess.run(
             ["docker", "run", "--rm", "-i", CADDY_IMAGE, "caddy", "hash-password"],
             input=(password + "\n").encode(), capture_output=True, env=child_env, check=False,
@@ -47,7 +54,10 @@ def prepare(destination, environment=None, hash_password=None):
     credentials = destination / "browser.env"
     credentials.touch(mode=0o600)
     credentials.chmod(0o600)
-    credentials.write_text(f"LOGS_UI_USERNAME={username}\nLOGS_UI_PASSWORD_HASH={password_hash}\n")
+    lines = f"LOGS_UI_USERNAME={username}\nLOGS_UI_PASSWORD_HASH={password_hash}\n"
+    if meili_key:
+        lines += f"MEILI_MASTER_KEY={meili_key}\n"
+    credentials.write_text(lines)
     override = (ROOT / "services/logs/deploy/compose.browser.yml").read_text()
     network = environment.get("LOGS_PROXY_NETWORK", "")
     if network:

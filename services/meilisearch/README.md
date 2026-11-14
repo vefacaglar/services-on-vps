@@ -41,7 +41,7 @@ GitHub'da `Settings → Environments → logs-production → Environment secrets
 openssl rand -hex 32 | pbcopy
 ```
 
-Workflow key'i release içinde mod `600` olan `services/meilisearch/meilisearch.env` dosyasına yazar; key Compose dosyasına, Git'e, komut argümanlarına veya loglara girmez. Secret yoksa deploy log servisiyle devam eder ve Meilisearch başlatılmaz; secret eklendikten sonraki deploy onu kurar.
+Workflow key'i release içinde mod `600` olan `services/meilisearch/meilisearch.env` dosyasına yazar; log konsolu açıksa aynı key, konsolun salt okunur `Meilisearch` sayfası (index, görev, ayar ve redakte edilmiş anahtar görünümü) için mod `600` olan `services/logs/browser.env` dosyasına da eklenir ve yalnız sunucu tarafında kullanılır; key Compose dosyasına, Git'e, komut argümanlarına veya loglara girmez. Secret yoksa deploy log servisiyle devam eder ve Meilisearch başlatılmaz; secret eklendikten sonraki deploy onu kurar.
 
 `scripts/start.sh` `docker compose up -d --wait` kullanır; ayar değişmediyse çalışan container yeniden başlatılmaz. Ardından `/health` yanıtının `available` olduğunu ve anahtarsız `/indexes` isteğinin `401` döndüğünü doğrular. Doğrulama başarısızsa deploy başarısız sayılır ve önceki release'in başlangıç script'i çalıştırılır. `services/` düzeninden önceki bir release'e dönülürse o release Meilisearch'ü tanımaz; Meilisearch container'ı ve verisi olduğu gibi kalır.
 

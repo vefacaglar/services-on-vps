@@ -23,7 +23,7 @@ Private repo'da Environment kullanımı GitHub planına bağlıdır. Menü gör�
 | `VPS_PORT` | İsteğe bağlı SSH portu. Eklenmezse `22`. |
 | `LOGS_UI_USERNAME` | İsteğe bağlı browser kullanıcı adı. Örneğin `vefa`; `LOGS_UI_PASSWORD` ile birlikte girilir. |
 | `LOGS_UI_PASSWORD` | İsteğe bağlı browser şifresi. 12–72 UTF-8 byte, satır sonu veya başta/sonda boşluk yok. Workflow hash'leyip VPS'e gönderir. |
-| `MEILI_MASTER_KEY` | İsteğe bağlı Meilisearch master key'i. En az 16 byte, boşluk/satır sonu yok; örneğin `openssl rand -hex 32` çıktısı. Eklenmezse Meilisearch deploy edilmez. Ayrıntılar [Meilisearch rehberinde](../services/meilisearch/README.md). |
+| `MEILI_MASTER_KEY` | İsteğe bağlı Meilisearch master key'i. En az 16 byte, boşluk/satır sonu yok; örneğin `openssl rand -hex 32` çıktısı. Eklenmezse Meilisearch deploy edilmez. Browser secret'ları da varsa key, log konsolunun salt okunur `Meilisearch` sayfası için `services/logs/browser.env` dosyasına da yazılır. Ayrıntılar [Meilisearch rehberinde](../services/meilisearch/README.md). |
 
 SSH parola ile giriş bu workflow'da desteklenmez. Repo, registry PAT'i, GHCR login'i, `AUTH_ENV`, API/DB/Typesense secret'ları gerekmez; Typesense bu repo tarafından yönetilmez. resmi public image'lar çekilir. `GITHUB_TOKEN` GitHub tarafından sağlanır, elle eklenmez.
 
@@ -133,7 +133,7 @@ PR'larda yalnız kontrol ve geçici Docker log testi çalışır. `main` push'la
 
 Her deploy dosyaları `releases/<commit>-<run>-<attempt>/` altına yükler; servisler release içinde `services/<ad>/` dizinlerindedir. Release kökündeki `scripts/start.sh` önce log servisini, `MEILI_MASTER_KEY` varsa ardından Meilisearch'ü başlatıp doğrular. Kalıcı `.env` ortak kalır. Sağlık, gerçek Docker log testi ve etkinse Caddy kurulumu geçince `current` symlink'i yeni release'e alınır. Docker volume adları sabittir; release dizini değiştiğinde log verisi korunur. Browser erişimi etkinse mevcut Caddy'ye yalnız log domain route'u eklenir; diğer uygulama route'ları korunur. DNS kaydını sen ayarlarsın. Bu akışı kullanırken aynı Compose projesine paralel olarak eski rsync dizininden deploy yapma.
 
-Browser secret'ları varsa bundle'a `services/logs/` altında yalnız hash içeren `browser.env`, browser servisini ekleyen `compose.override.yml` ve Caddy hedefini belirleyen `browser-settings.json` da girer. `MEILI_MASTER_KEY` varsa `services/meilisearch/meilisearch.env` (mod `600`) ve `LOGS_PROXY_NETWORK` tanımlıysa ağ adını içeren `services/meilisearch/compose.override.yml` eklenir; key komut argümanına veya loga yazılmaz. Workflow Caddy route'unu otomatik ayarlar; VPS'e elle bağlanman gerekmez. GitHub/DNS ayarları [ayrı rehberdedir](browser-access.md).
+Browser secret'ları varsa bundle'a `services/logs/` altında yalnız hash içeren `browser.env`, browser servisini ekleyen `compose.override.yml` ve Caddy hedefini belirleyen `browser-settings.json` da girer. `MEILI_MASTER_KEY` varsa `services/meilisearch/meilisearch.env` (mod `600`) ve `LOGS_PROXY_NETWORK` tanımlıysa ağ adını içeren `services/meilisearch/compose.override.yml` eklenir; browser secret'ları da varsa aynı key `services/logs/browser.env` dosyasına (mod `600`) eklenir; key komut argümanına veya loga yazılmaz. Workflow Caddy route'unu otomatik ayarlar; VPS'e elle bağlanman gerekmez. GitHub/DNS ayarları [ayrı rehberdedir](browser-access.md).
 
 ## Hata ve geri dönüş
 

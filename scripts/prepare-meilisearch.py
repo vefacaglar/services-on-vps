@@ -10,13 +10,18 @@ import re
 import sys
 
 
+def validate_key(key):
+    """Shared with prepare-browser.py, which hands the same key to the log console."""
+    if len(key.encode()) < 16 or len(key.encode()) > 512 or re.search(r"\s", key):
+        raise ValueError("Set MEILI_MASTER_KEY using at least 16 bytes without whitespace or newlines")
+
+
 def prepare(destination, environment=None):
     environment = os.environ if environment is None else environment
     key = environment.get("MEILI_MASTER_KEY", "")
     if not key:
         return False
-    if len(key.encode()) < 16 or len(key.encode()) > 512 or re.search(r"\s", key):
-        raise ValueError("Set MEILI_MASTER_KEY using at least 16 bytes without whitespace or newlines")
+    validate_key(key)
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
     credentials = destination / "meilisearch.env"

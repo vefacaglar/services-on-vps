@@ -37,6 +37,26 @@ class BrowserBundleTests(unittest.TestCase):
         self.assertIn('name: existing_proxy', (self.directory / 'compose.override.yml').read_text())
         self.assertIn('main-caddy', (self.directory / 'browser-settings.json').read_text())
 
+    def test_meilisearch_key_is_added_only_to_private_browser_env(self):
+        key = "meili-test-master-key-8841"
+        environment = {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password", "MEILI_MASTER_KEY": key}
+        self.assertTrue(prepare(self.directory, environment, lambda _: TEST_HASH))
+        credentials = self.directory / "browser.env"
+        self.assertTrue(credentials.read_text().endswith(f"MEILI_MASTER_KEY={key}\n"))
+        self.assertEqual(credentials.stat().st_mode & 0o777, 0o600)
+        for other in self.directory.iterdir():
+            if other != credentials:
+                self.assertNotIn(key, other.read_text(), other.name)
+        prepare(self.directory, {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password"}, lambda _: TEST_HASH)
+        self.assertNotIn("MEILI_MASTER_KEY", credentials.read_text())
+
+    def test_unsafe_meilisearch_key_is_rejected(self):
+        for key in ["short", "has space in the middle!!", "newline-key-123456\n", "k" * 513]:
+            with self.subTest(length=len(key)), self.assertRaises(ValueError):
+                prepare(self.directory, {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password",
+                                         "MEILI_MASTER_KEY": key}, lambda _: TEST_HASH)
+        self.assertFalse((self.directory / "browser.env").exists())
+
     def test_incomplete_credentials_and_config_injection_are_rejected(self):
         for environment in [
             {"LOGS_UI_USERNAME": "vefa"},

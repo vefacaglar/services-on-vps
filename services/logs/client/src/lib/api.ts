@@ -4,11 +4,39 @@ export type LogRow = Record<string, unknown>;
 export class ApiError extends Error {
   key: Key;
   status: number;
-  constructor(key: Key, status = 0, details = "") {
+  code: string;
+  constructor(key: Key, status = 0, details = "", code = "") {
     super(details);
     this.key = key;
     this.status = status;
+    this.code = code;
   }
+}
+const meiliKeys: Record<string, Key> = {
+  not_configured: "meiliNotConfigured",
+  unreachable: "meiliUnreachable",
+  invalid_key: "meiliInvalidKey",
+};
+// Meilisearch routes return {error, code}; keep Meilisearch's own message
+// (e.g. an invalid filter) as details. Other routes keep generic messages.
+export async function meiliError(response: Response): Promise<ApiError> {
+  let body: { error?: string; code?: string } = {};
+  try {
+    body = (await response.json()) as typeof body;
+  } catch {
+    // Non-JSON error bodies fall back to the status mapping.
+  }
+  const code = body.code || "";
+  const key: Key =
+    meiliKeys[code] ||
+    (response.status === 404
+      ? "meiliNotFound"
+      : response.status === 400
+        ? "meiliRequestRejected"
+        : "requestFailed");
+  const details =
+    meiliKeys[code] || !body.error ? "" : body.error.slice(0, 2000);
+  return new ApiError(key, response.status, details, code);
 }
 export async function api<T>(
   path: string,
@@ -32,6 +60,7 @@ export async function api<T>(
   }
   if (!response.ok) {
     if (response.status === 401) clearHistory();
+    else if (path.startsWith("/api/meili/")) throw await meiliError(response);
     const key: Key =
       response.status === 401
         ? path === "/api/login"

@@ -14,6 +14,19 @@ describe("query and navigation contracts", () => {
     );
     expect(signInDestination("//example.com")).toBe("/");
     expect(signInDestination("https://example.com")).toBe("/");
+    for (const path of [
+      "/meilisearch",
+      "/meilisearch/tasks?status=failed",
+      "/meilisearch/keys",
+      "/meilisearch/indexes/products?tab=stats",
+    ])
+      expect(signInDestination(path)).toBe(path);
+    for (const path of [
+      "/meilisearch/indexes/a.b",
+      "/meilisearch//evil.example",
+      "/meilisearchx",
+    ])
+      expect(signInDestination(path)).toBe("/");
   });
   it("adds escaped field filters before a pipeline without treating a quoted pipe as a separator", () => {
     const q = addFieldFilter(
