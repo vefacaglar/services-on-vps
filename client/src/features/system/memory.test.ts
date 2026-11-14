@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, memorySegments, type SystemReport } from "./memory";
+import {
+  diskSegments,
+  diskUsedShare,
+  formatBytes,
+  memorySegments,
+  type SystemReport,
+} from "./memory";
 import { en, type Key } from "../../lib/i18n";
 
 const GiB = 1024 ** 3,
@@ -26,6 +32,7 @@ function report(groups: number[], cgroupAvailable = true): SystemReport {
       swapTotal: 0,
       swapUsed: 0,
     },
+    disk: null,
     groups: cgroupAvailable ? list : [],
     accounted: cgroupAvailable ? groups.reduce((a, b) => a + b, 0) : 0,
     cgroupAvailable,
@@ -69,5 +76,24 @@ describe("system memory", () => {
     const segments = memorySegments(report([], false), label);
     expect(segments.map((s) => s.key)).toEqual(["used", "cache", "free"]);
     expect(segments.reduce((sum, s) => sum + s.bytes, 0)).toBe(8 * GiB);
+  });
+  it("splits disk into log data, other used space and free space", () => {
+    const disk = {
+      path: "/",
+      total: 100 * GiB,
+      used: 40 * GiB,
+      free: 60 * GiB,
+      available: 55 * GiB,
+      logData: 2 * GiB,
+    };
+    expect(diskSegments(disk, label).map((s) => [s.key, s.bytes])).toEqual([
+      ["logs", 2 * GiB],
+      ["used", 38 * GiB],
+      ["free", 60 * GiB],
+    ]);
+    expect(diskUsedShare(disk)).toBeCloseTo(40 / 95);
+    expect(
+      diskSegments({ ...disk, logData: null }, label).map((s) => s.bytes),
+    ).toEqual([0, 40 * GiB, 60 * GiB]);
   });
 });

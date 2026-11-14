@@ -1,13 +1,16 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePageTitle, usePreferences } from "../../app/Preferences";
 import { ErrorMessage, PageHeading } from "../../app/Shell";
 import { api } from "../../lib/api";
 import type { Key } from "../../lib/i18n";
 import {
+  diskSegments,
+  diskUsedShare,
   displayName,
   formatBytes,
   memorySegments,
+  type Segment,
   type SystemReport,
 } from "./memory";
 import styles from "./System.module.css";
@@ -20,6 +23,89 @@ const filterLabels: Record<Filter, Key> = {
   container: "kindContainers",
   service: "kindServices",
 };
+type Stat = { key: Key; value: string; note?: string };
+
+function Usage({
+  title,
+  aside,
+  stats,
+  segments,
+  total,
+  label,
+  help,
+  bytes,
+  percent,
+}: {
+  title: string;
+  aside?: ReactNode;
+  stats: Stat[];
+  segments: Segment[];
+  total: number;
+  label: (parts: string) => string;
+  help?: string;
+  bytes: (value: number) => string;
+  percent: (value: number) => string;
+}) {
+  const { t } = usePreferences();
+  return (
+    <section className={styles.card}>
+      <div className={styles.heading}>
+        <h2>{title}</h2>
+        {aside && <span>{aside}</span>}
+      </div>
+      <dl className={styles.stats}>
+        {stats.map(({ key, value, note }) => (
+          <div key={key}>
+            <dt>{t(key)}</dt>
+            <dd>
+              {value}
+              {note && <span>{note}</span>}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {total > 0 && (
+        <>
+          <div
+            className={styles.bar}
+            role="img"
+            aria-label={label(
+              segments.map((s) => `${s.label} ${bytes(s.bytes)}`).join(", "),
+            )}
+          >
+            {segments.map((s) =>
+              s.bytes > 0 ? (
+                <span
+                  key={s.key}
+                  className={styles[s.tone]}
+                  style={
+                    {
+                      "--share": `${(s.bytes / total) * 100}%`,
+                    } as CSSProperties
+                  }
+                  title={`${s.label}: ${bytes(s.bytes)}`}
+                />
+              ) : null,
+            )}
+          </div>
+          <ul className={styles.legend}>
+            {segments.map((s) => (
+              <li key={s.key}>
+                <i className={styles[s.tone]} aria-hidden="true" />
+                <span className={styles.label} title={s.label}>
+                  {s.label}
+                </span>
+                <span className={styles.number}>{bytes(s.bytes)}</span>
+                <span className={styles.share}>{percent(s.bytes / total)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {help && <p className={styles.help}>{help}</p>}
+    </section>
+  );
+}
 
 export default function System() {
   usePageTitle("system");
@@ -40,25 +126,40 @@ export default function System() {
     }).format(value);
   const data = report.data;
   const memory = data?.memory;
-  const segments = data ? memorySegments(data, t) : [];
+  const disk = data?.disk;
   const groups =
     data?.groups.filter((g) => filter === "all" || g.kind === filter) || [];
-  const stats: [Key, string, string?][] = memory
+  const memoryStats: Stat[] = memory
     ? [
-        ["total", bytes(memory.total)],
-        [
-          "memUsed",
-          bytes(memory.used),
-          memory.total ? percent(memory.used / memory.total) : undefined,
-        ],
-        ["memAvailable", bytes(memory.available)],
-        ["memCache", bytes(memory.cached + memory.buffers)],
-        [
-          "memSwap",
-          memory.swapTotal
+        { key: "total", value: bytes(memory.total) },
+        {
+          key: "memUsed",
+          value: bytes(memory.used),
+          note: memory.total ? percent(memory.used / memory.total) : undefined,
+        },
+        { key: "memAvailable", value: bytes(memory.available) },
+        { key: "memCache", value: bytes(memory.cached + memory.buffers) },
+        {
+          key: "memSwap",
+          value: memory.swapTotal
             ? `${bytes(memory.swapUsed)} / ${bytes(memory.swapTotal)}`
             : "—",
-        ],
+        },
+      ]
+    : [];
+  const diskStats: Stat[] = disk
+    ? [
+        { key: "total", value: bytes(disk.total) },
+        {
+          key: "memUsed",
+          value: bytes(disk.used),
+          note: percent(diskUsedShare(disk)),
+        },
+        { key: "memAvailable", value: bytes(disk.available) },
+        {
+          key: "logData",
+          value: disk.logData == null ? "—" : bytes(disk.logData),
+        },
       ]
     : [];
   return (
@@ -80,74 +181,43 @@ export default function System() {
       <ErrorMessage error={report.error} />
       {report.isPending && <p className={styles.meta}>{t("loading")}</p>}
       {data && memory && (
-        <>
-          <dl className={styles.stats}>
-            {stats.map(([key, value, note]) => (
-              <div key={key}>
-                <dt>{t(key)}</dt>
-                <dd>
-                  {value}
-                  {note && <span>{note}</span>}
-                </dd>
-              </div>
-            ))}
-          </dl>
+        <div className={styles.page}>
           {!data.cgroupAvailable && (
             <p className={styles.notice} role="note">
               {t("cgroupUnavailable")}
             </p>
           )}
-          {memory.total > 0 && (
-            <section className={styles.map}>
-              <div className={styles.heading}>
-                <h2>{t("memoryMap")}</h2>
-                <span>
-                  {t("sampledAt", {
-                    time: new Date(data.sampledAt).toLocaleTimeString(locale),
-                  })}
-                </span>
-              </div>
-              <div
-                className={styles.bar}
-                role="img"
-                aria-label={t("memoryMapLabel", {
-                  total: bytes(memory.total),
-                  parts: segments
-                    .map((s) => `${s.label} ${bytes(s.bytes)}`)
-                    .join(", "),
-                })}
-              >
-                {segments.map((s) =>
-                  s.bytes > 0 ? (
-                    <span
-                      key={s.key}
-                      className={styles[s.tone]}
-                      style={
-                        {
-                          "--share": `${(s.bytes / memory.total) * 100}%`,
-                        } as CSSProperties
-                      }
-                      title={`${s.label}: ${bytes(s.bytes)}`}
-                    />
-                  ) : null,
-                )}
-              </div>
-              <ul className={styles.legend}>
-                {segments.map((s) => (
-                  <li key={s.key}>
-                    <i className={styles[s.tone]} aria-hidden="true" />
-                    <span className={styles.label}>{s.label}</span>
-                    <span>{bytes(s.bytes)}</span>
-                    <span className={styles.share}>
-                      {percent(s.bytes / memory.total)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
+          <Usage
+            title={t("memory")}
+            aside={t("sampledAt", {
+              time: new Date(data.sampledAt).toLocaleTimeString(locale),
+            })}
+            stats={memoryStats}
+            segments={memorySegments(data, t)}
+            total={memory.total}
+            label={(parts) =>
+              t("memoryMapLabel", { total: bytes(memory.total), parts })
+            }
+            bytes={bytes}
+            percent={percent}
+          />
+          {disk && (
+            <Usage
+              title={t("disk")}
+              aside={<code>{disk.path}</code>}
+              stats={diskStats}
+              segments={diskSegments(disk, t)}
+              total={disk.total}
+              label={(parts) =>
+                t("diskMapLabel", { total: bytes(disk.total), parts })
+              }
+              help={t("diskHelp")}
+              bytes={bytes}
+              percent={percent}
+            />
           )}
           {data.cgroupAvailable && (
-            <section className={styles.apps}>
+            <section className={styles.card}>
               <div className={styles.heading}>
                 <h2>{t("app")}</h2>
                 <div
@@ -174,9 +244,13 @@ export default function System() {
                         <th scope="col">{t("app")}</th>
                         <th scope="col">{t("memory")}</th>
                         <th scope="col">{t("ramShare")}</th>
-                        <th scope="col">{t("memLimit")}</th>
                         <th scope="col">{t("cpu")}</th>
-                        <th scope="col">{t("memCache")}</th>
+                        <th scope="col" className={styles.optional}>
+                          {t("memLimit")}
+                        </th>
+                        <th scope="col" className={styles.optional}>
+                          {t("memCache")}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -196,9 +270,9 @@ export default function System() {
                                 .join(" · ")}
                             </span>
                           </th>
-                          <td>{bytes(g.memory)}</td>
+                          <td className={styles.strong}>{bytes(g.memory)}</td>
                           <td>
-                            <span className={styles.meter}>
+                            <span className={styles.meter} aria-hidden="true">
                               <span
                                 style={
                                   {
@@ -211,9 +285,6 @@ export default function System() {
                               ? percent(g.memory / memory.total)
                               : "—"}
                           </td>
-                          <td className={styles.muted}>
-                            {g.limit == null ? t("none") : bytes(g.limit)}
-                          </td>
                           <td>
                             {g.cpu == null
                               ? "—"
@@ -222,7 +293,16 @@ export default function System() {
                                   maximumFractionDigits: 1,
                                 }).format(g.cpu / 100)}
                           </td>
-                          <td className={styles.muted}>{bytes(g.cache)}</td>
+                          <td
+                            className={`${styles.secondary} ${styles.optional}`}
+                          >
+                            {g.limit == null ? t("none") : bytes(g.limit)}
+                          </td>
+                          <td
+                            className={`${styles.secondary} ${styles.optional}`}
+                          >
+                            {bytes(g.cache)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -238,7 +318,7 @@ export default function System() {
               </p>
             </section>
           )}
-        </>
+        </div>
       )}
     </>
   );

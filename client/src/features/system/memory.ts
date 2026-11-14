@@ -24,6 +24,14 @@ export type SystemReport = {
     swapTotal: number;
     swapUsed: number;
   };
+  disk: {
+    path: string;
+    total: number;
+    used: number;
+    free: number;
+    available: number;
+    logData: number | null;
+  } | null;
   groups: AppGroup[];
   accounted: number;
   cgroupAvailable: boolean;
@@ -111,4 +119,37 @@ export function displayName(g: AppGroup, label: (key: Key) => string) {
   if (g.kind === "other" && g.id === "user.slice") return label("userSessions");
   if (g.kind === "other" && g.id === "init.scope") return label("initProcess");
   return g.name;
+}
+
+// Disk bar: log data (VictoriaLogs storage) is carved out of used space; the
+// rest of the bar is free space, including blocks reserved for root.
+export function diskSegments(
+  disk: NonNullable<SystemReport["disk"]>,
+  label: (key: Key) => string,
+): Segment[] {
+  if (!disk.total) return [];
+  const used = Math.min(disk.used, disk.total);
+  const logs = Math.min(disk.logData ?? 0, used);
+  return [
+    { key: "logs", label: label("logData"), bytes: logs, tone: "app0" },
+    {
+      key: "used",
+      label: label("diskOtherUsed"),
+      bytes: used - logs,
+      tone: "others",
+    },
+    {
+      key: "free",
+      label: label("freeMemory"),
+      bytes: disk.total - used,
+      tone: "free",
+    },
+  ];
+}
+
+// Matches df's Use%: used / (used + available), so root-reserved blocks count
+// as unavailable rather than free.
+export function diskUsedShare(disk: NonNullable<SystemReport["disk"]>) {
+  const base = disk.used + disk.available;
+  return base ? disk.used / base : 0;
 }

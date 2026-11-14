@@ -73,6 +73,7 @@ func fakeHost(t *testing.T) (cgroup, meminfo string) {
 
 type systemResponse struct {
 	Memory          memorySummary
+	Disk            *diskSummary
 	Groups          []map[string]any
 	Accounted       uint64
 	CgroupAvailable bool
@@ -94,7 +95,13 @@ func getSystem(t *testing.T, s *server, c *http.Cookie) systemResponse {
 
 func TestSystemReportsHostMemoryAndApps(t *testing.T) {
 	var lookups atomic.Int32
+	var metrics atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/metrics" {
+			metrics.Add(1)
+			fmt.Fprint(w, "# HELP vl_data_size_bytes x\nvl_data_size_bytes{type=\"indexdb\"} 1000\nvl_data_size_bytes{type=\"storage\"} 2.5e3\nvl_data_size_bytes_total 7\nvl_compressed_data_size_bytes{type=\"storage/big\"} 9\n")
+			return
+		}
 		lookups.Add(1)
 		if err := r.ParseForm(); err != nil || r.Form.Get("query") != containerNamesQuery {
 			t.Errorf("unexpected name query: %q", r.Form.Get("query"))
@@ -106,6 +113,7 @@ func TestSystemReportsHostMemoryAndApps(t *testing.T) {
 	defer upstream.Close()
 	s := testServer(t, upstream.URL, false)
 	s.cgroupRoot, s.meminfoPath = fakeHost(t)
+	s.diskPath = t.TempDir()
 	if code := request(s, "GET", "/api/system", "", nil).Code; code != 401 {
 		t.Fatalf("anonymous system access: %d", code)
 	}
@@ -121,6 +129,9 @@ func TestSystemReportsHostMemoryAndApps(t *testing.T) {
 	if m.Total != 8000000*1024 || m.Available != 5000000*1024 || m.Used != 3000000*1024 || m.Free != 1000000*1024 ||
 		m.Buffers != 100000*1024 || m.Cached != 3100000*1024 || m.SwapTotal != 2000000*1024 || m.SwapUsed != 500000*1024 {
 		t.Fatalf("meminfo: %+v", m)
+	}
+	if d := first.Disk; d == nil || d.Total == 0 || d.Used+d.Free != d.Total || d.Available > d.Free || d.LogData == nil || *d.LogData != 3500 {
+		t.Fatalf("disk: %+v", first.Disk)
 	}
 	if !first.CgroupAvailable {
 		t.Fatal("cgroup not detected")
@@ -174,6 +185,9 @@ func TestSystemReportsHostMemoryAndApps(t *testing.T) {
 			}
 		}
 	}
+	if metrics.Load() != 1 {
+		t.Fatalf("metrics not cached: %d", metrics.Load())
+	}
 	if lookups.Load() != 1 {
 		t.Fatalf("names not cached: %d lookups", lookups.Load())
 	}
@@ -187,7 +201,15 @@ func TestSystemWithoutCgroupOrNames(t *testing.T) {
 	c := signIn(t, s)
 
 	s.cgroupRoot, s.meminfoPath = filepath.Join(t.TempDir(), "missing"), meminfo
+	s.diskPath = filepath.Join(t.TempDir(), "missing")
 	result := getSystem(t, s, c)
+	if result.Disk != nil {
+		t.Fatal("unreadable disk path must be null")
+	}
+	s.diskPath = t.TempDir()
+	if result = getSystem(t, s, c); result.Disk == nil || result.Disk.Total == 0 || result.Disk.LogData != nil {
+		t.Fatalf("metrics failure must give null logData: %+v", result.Disk)
+	}
 	if result.CgroupAvailable || len(result.Groups) != 0 || result.Memory.Total == 0 {
 		t.Fatalf("missing cgroup: %+v", result)
 	}

@@ -31,17 +31,17 @@ var assets embed.FS
 const sessionLifetime = 12 * time.Hour
 
 type server struct {
-	username, passwordHash, upstream string
-	insecure                         bool
-	client                           *http.Client
-	proxy                            *httputil.ReverseProxy
-	mu                               sync.Mutex
-	sessions                         map[[32]byte]time.Time
-	loginAttempts                    []time.Time
-	loginSlot                        chan struct{}
-	querySlots                       chan struct{}
-	cgroupRoot, meminfoPath          string
-	sys                              systemState
+	username, passwordHash, upstream  string
+	insecure                          bool
+	client                            *http.Client
+	proxy                             *httputil.ReverseProxy
+	mu                                sync.Mutex
+	sessions                          map[[32]byte]time.Time
+	loginAttempts                     []time.Time
+	loginSlot                         chan struct{}
+	querySlots                        chan struct{}
+	cgroupRoot, meminfoPath, diskPath string
+	sys                               systemState
 }
 
 func newServer(username, hash, upstream string, insecure bool) (*server, error) {
@@ -57,7 +57,7 @@ func newServer(username, hash, upstream string, insecure bool) (*server, error) 
 	}
 	s := &server{username: username, passwordHash: hash, upstream: upstream, insecure: insecure,
 		client: &http.Client{Timeout: 25 * time.Second}, sessions: make(map[[32]byte]time.Time), loginSlot: make(chan struct{}, 1), querySlots: make(chan struct{}, 2),
-		cgroupRoot: "/host/cgroup", meminfoPath: "/proc/meminfo", sys: systemState{cpu: make(map[string]cpuSample)}}
+		cgroupRoot: "/host/cgroup", meminfoPath: "/proc/meminfo", diskPath: "/", sys: systemState{cpu: make(map[string]cpuSample)}}
 	s.proxy = httputil.NewSingleHostReverseProxy(u)
 	director := s.proxy.Director
 	s.proxy.Director = func(r *http.Request) {
@@ -462,6 +462,9 @@ func main() {
 	}
 	if p := os.Getenv("HOST_MEMINFO_PATH"); p != "" {
 		s.meminfoPath = p
+	}
+	if p := os.Getenv("HOST_DISK_PATH"); p != "" {
+		s.diskPath = p
 	}
 	address := os.Getenv("LOGS_LISTEN")
 	if address == "" {

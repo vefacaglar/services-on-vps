@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -24,6 +26,8 @@ const (
 	containerNameTTL = 60 * time.Second
 	containerNameErr = 15 * time.Second
 	cpuMinInterval   = time.Second
+	logDataTTL       = 30 * time.Second
+	logDataErrTTL    = 10 * time.Second
 )
 
 var containerDir = regexp.MustCompile(`^(?:docker-)?([0-9a-f]{64})(?:\.scope)?$`)
@@ -44,6 +48,19 @@ type memorySummary struct {
 	SwapUsed  uint64 `json:"swapUsed"`
 }
 
+// diskSummary is statfs of HOST_DISK_PATH (default "/"). Inside the container
+// "/" is the overlay root, and statfs on overlayfs reports the filesystem that
+// holds /var/lib/docker – normally the VPS root disk – so no extra mount is
+// needed. Values follow df: available excludes root-reserved blocks.
+type diskSummary struct {
+	Path      string  `json:"path"`
+	Total     uint64  `json:"total"`
+	Used      uint64  `json:"used"`
+	Free      uint64  `json:"free"`
+	Available uint64  `json:"available"`
+	LogData   *uint64 `json:"logData"`
+}
+
 type appGroup struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
@@ -61,6 +78,7 @@ type appGroup struct {
 
 type systemReport struct {
 	Memory          memorySummary `json:"memory"`
+	Disk            *diskSummary  `json:"disk"`
 	Groups          []appGroup    `json:"groups"`
 	Accounted       uint64        `json:"accounted"`
 	CgroupAvailable bool          `json:"cgroupAvailable"`
@@ -81,6 +99,8 @@ type systemState struct {
 	names       map[string]containerInfo
 	namesAt     time.Time
 	namesFailed bool
+	logData     *uint64
+	logDataAt   time.Time
 }
 
 // readMeminfo parses /proc/meminfo. Cached follows free(1)'s buff/cache minus
@@ -131,6 +151,77 @@ func sub(a, b uint64) uint64 {
 		return 0
 	}
 	return a - b
+}
+
+func readDisk(path string) *diskSummary {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil || st.Blocks == 0 {
+		return nil
+	}
+	size := uint64(st.Bsize)
+	return &diskSummary{Path: path, Total: uint64(st.Blocks) * size, Used: sub(uint64(st.Blocks), uint64(st.Bfree)) * size,
+		Free: uint64(st.Bfree) * size, Available: uint64(st.Bavail) * size}
+}
+
+// parseLogDataSize sums every vl_data_size_bytes series (VictoriaLogs labels
+// it by type: "storage" and "indexdb") from Prometheus text exposition.
+func parseLogDataSize(r io.Reader) (uint64, bool) {
+	var total float64
+	found := false
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64<<10), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		rest, ok := strings.CutPrefix(line, "vl_data_size_bytes")
+		if !ok || rest == "" || (rest[0] != '{' && rest[0] != ' ') {
+			continue
+		}
+		if i := strings.LastIndexByte(rest, '}'); i >= 0 {
+			rest = rest[i+1:]
+		}
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			continue
+		}
+		if v, err := strconv.ParseFloat(fields[0], 64); err == nil && v >= 0 {
+			total += v
+			found = true
+		}
+	}
+	return uint64(total), found && scanner.Err() == nil
+}
+
+// logDataSize reads VictoriaLogs' own /metrics server-side (it is never proxied
+// to the browser), cached so the 5s page refresh does not hit it every time.
+func (s *server) logDataSize(r *http.Request, now time.Time) *uint64 {
+	s.sys.mu.Lock()
+	cached, at := s.sys.logData, s.sys.logDataAt
+	s.sys.mu.Unlock()
+	if ttl := logDataTTL; !at.IsZero() {
+		if cached == nil {
+			ttl = logDataErrTTL
+		}
+		if now.Sub(at) < ttl {
+			return cached
+		}
+	}
+	var result *uint64
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if req, err := http.NewRequestWithContext(ctx, "GET", s.upstream+"/metrics", nil); err == nil {
+		if res, err := s.client.Do(req); err == nil {
+			if res.StatusCode == 200 {
+				if size, ok := parseLogDataSize(io.LimitReader(res.Body, 8<<20)); ok {
+					result = &size
+				}
+			}
+			res.Body.Close()
+		}
+	}
+	s.sys.mu.Lock()
+	s.sys.logData, s.sys.logDataAt = result, now
+	s.sys.mu.Unlock()
+	return result
 }
 
 func readUint(path string) (uint64, bool) {
@@ -228,6 +319,9 @@ func (s *server) systemReport(r *http.Request) systemReport {
 	now := time.Now()
 	report := systemReport{Groups: []appGroup{}, SampledAt: now.UTC()}
 	report.Memory, _ = readMeminfo(s.meminfoPath)
+	if report.Disk = readDisk(s.diskPath); report.Disk != nil {
+		report.Disk.LogData = s.logDataSize(r, now)
+	}
 	if _, err := os.Stat(filepath.Join(s.cgroupRoot, "cgroup.controllers")); err != nil {
 		return report
 	}

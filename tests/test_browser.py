@@ -125,6 +125,8 @@ class BrowserIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         report = json.loads(body)
         self.assertGreater(report["memory"]["total"], 0)
+        self.assertIsNotNone(report["disk"])
+        self.assertGreater(report["disk"]["total"], 0)
         self.assertTrue(report["cgroupAvailable"], "read-only /sys/fs/cgroup mount missing or not cgroup v2")
         self.assertTrue(any(group["kind"] == "container" for group in report["groups"]), report["groups"])
 
