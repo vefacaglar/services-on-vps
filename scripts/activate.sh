@@ -22,21 +22,31 @@ elif [[ -e "$base/current" ]]; then
   exit 1
 fi
 
+# One shared runtime .env for every service; releases before services/ kept
+# it at the release root, newer ones read it from each service directory.
+example="$release/services/logs/.env.example"
+[[ -f $example ]] || example="$release/.env.example"
 if [[ ! -e "$base/.env" ]]; then
-  (umask 077; cp "$release/.env.example" "$base/.env")
+  (umask 077; cp "$example" "$base/.env")
 fi
 ln -sfn "$base/.env" "$release/.env"
+for service in "$release"/services/*/; do
+  [[ -d $service ]] && ln -sfn "$base/.env" "${service}.env"
+done
 
 activate_release() {
   "$release/scripts/start.sh" || return 1
-  if [[ -f "$release/browser.env" ]]; then
-    python3 "$release/scripts/configure-caddy.py" "$release/browser-settings.json" "$base/caddy-backups" || return 1
+  local settings="$release/services/logs/browser-settings.json"
+  if [[ -f "$release/services/logs/browser.env" ]]; then
+    python3 "$release/scripts/configure-caddy.py" "$settings" "$base/caddy-backups" || return 1
   fi
 }
 
 if ! activate_release; then
   echo 'Deployment failed.' >&2
   if [[ -n $previous && $previous != "$release" ]]; then
+    # Older releases start only the logs stack; services they do not know
+    # (e.g. Meilisearch) keep their current containers and data volumes.
     echo 'Restoring previous release...' >&2
     if ! "$previous/scripts/start.sh"; then
       echo 'Rollback also failed; inspect Docker services on the VPS.' >&2

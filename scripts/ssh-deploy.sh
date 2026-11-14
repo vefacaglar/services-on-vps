@@ -37,15 +37,29 @@ ssh_options=(
 target="$VPS_USER@$VPS_HOST"
 release="$VPS_DEPLOY_DIR/releases/$DEPLOY_ID"
 
-python3 scripts/prepare-browser.py "$work_dir"
+# Generated secrets land in the same paths they take inside the release.
+stage="$work_dir/stage"
+python3 scripts/prepare-browser.py "$stage/services/logs"
 unset LOGS_UI_PASSWORD LOGS_UI_USERNAME
+python3 scripts/prepare-meilisearch.py "$stage/services/meilisearch"
+unset MEILI_MASTER_KEY
 
 # Explicit allowlist: .env, SSH keys and local files never travel.
-bundle_paths=(compose.yml .env.example .dockerignore vector scripts README.md docs deploy browser)
-bundle_paths+=(client/package.json client/package-lock.json client/tsconfig.json client/vite.config.ts client/index.html client/src client/public)
-if [[ -f "$work_dir/browser.env" ]]; then
-  tar -czf "$work_dir/bundle.tar.gz" "${bundle_paths[@]}" \
-    -C "$work_dir" browser.env compose.override.yml browser-settings.json
+logs=services/logs
+bundle_paths=(README.md scripts docs)
+bundle_paths+=("$logs/compose.yml" "$logs/.env.example" "$logs/.dockerignore" "$logs/README.md")
+bundle_paths+=("$logs/vector" "$logs/scripts" "$logs/deploy" "$logs/console")
+bundle_paths+=("$logs/client/package.json" "$logs/client/package-lock.json" "$logs/client/tsconfig.json")
+bundle_paths+=("$logs/client/vite.config.ts" "$logs/client/index.html" "$logs/client/src" "$logs/client/public")
+bundle_paths+=(services/meilisearch/compose.yml services/meilisearch/.env.example)
+bundle_paths+=(services/meilisearch/README.md services/meilisearch/scripts)
+generated=()
+for file in "$logs/browser.env" "$logs/compose.override.yml" "$logs/browser-settings.json" \
+  services/meilisearch/meilisearch.env services/meilisearch/compose.override.yml; do
+  [[ -f "$stage/$file" ]] && generated+=("$file")
+done
+if (( ${#generated[@]} )); then
+  tar -czf "$work_dir/bundle.tar.gz" "${bundle_paths[@]}" -C "$stage" "${generated[@]}"
 else
   tar -czf "$work_dir/bundle.tar.gz" "${bundle_paths[@]}"
 fi

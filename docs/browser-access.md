@@ -2,7 +2,7 @@
 
 Hedef adres `https://logs.vefacaglar.com`. Kurulum ve günlük kullanım için VPS'e elle bağlanman gerekmez. GitHub secret'larını ve DNS kaydını sen ayarlarsın; workflow mevcut Caddy route'unu otomatik ekleyip doğrular ve yeniden yükler.
 
-Akış: tarayıcı → mevcut Caddy (HTTPS) → Go `browser` servisi (oturum denetimi ve React client) → VictoriaLogs sorgu API'leri. Arayüz tamamen bize ait React + TypeScript client'tır (`client/`); VictoriaLogs UI, iframe veya HTML/CSS enjeksiyonu kullanılmaz. Go servisi Vite çıktısını tek binary içine gömer. Node yalnız build aşamasında gerekir; VPS'teki Docker build bunu otomatik yapar. VictoriaLogs'un `9428` portu loopback'te kalır; browser servisinin host portu yoktur. Gateway yalnız açıkça listelenmiş `/select/logsql/*` okuma API'lerini geçirir; ingestion/yönetim yolları ve native VMUI asset'leri `404` döner.
+Akış: tarayıcı → mevcut Caddy (HTTPS) → Go `browser` servisi (oturum denetimi ve React client) → VictoriaLogs sorgu API'leri. Arayüz tamamen bize ait React + TypeScript client'tır (`services/logs/client/`); VictoriaLogs UI, iframe veya HTML/CSS enjeksiyonu kullanılmaz. Go servisi Vite çıktısını tek binary içine gömer. Node yalnız build aşamasında gerekir; VPS'teki Docker build bunu otomatik yapar. VictoriaLogs'un `9428` portu loopback'te kalır; browser servisinin host portu yoktur. Gateway yalnız açıkça listelenmiş `/select/logsql/*` okuma API'lerini geçirir; ingestion/yönetim yolları ve native VMUI asset'leri `404` döner.
 
 ## GitHub secrets
 
@@ -13,7 +13,7 @@ Repo'da `Settings → Environments → logs-production → Environment secrets` 
 | `LOGS_UI_USERNAME` | Giriş kullanıcı adı, örneğin `vefa`. 1–64 karakter; harf, sayı, `_` veya `-`. |
 | `LOGS_UI_PASSWORD` | Senin belirlediğin güçlü şifre. 12–72 UTF-8 byte; başta/sonda boşluk veya satır sonu olmamalı. ASCII bir şifre için 12–72 karakter. |
 
-Şifreyi sohbete veya repo'ya koyma. Workflow şifreyi Caddy'ye stdin üzerinden verip bcrypt hash'i üretir. VPS'e yalnız kullanıcı adı ve hash içeren `browser.env` dosyası gider; dosya modu `600`dür. Açık şifre komut argümanına veya dosyaya yazılmaz. `browser.env` ve üretilen `compose.override.yml` Git tarafından yok sayılır.
+Şifreyi sohbete veya repo'ya koyma. Workflow şifreyi Caddy'ye stdin üzerinden verip bcrypt hash'i üretir. VPS'e yalnız kullanıcı adı ve hash içeren `services/logs/browser.env` dosyası gider; dosya modu `600`dür. Açık şifre komut argümanına veya dosyaya yazılmaz. `browser.env` ve üretilen `compose.override.yml` Git tarafından yok sayılır.
 
 Güncel dosyaları `main`e gönderip `Logs CI and deploy` workflow'unu çalıştır. Her iki secret da boşsa önceki loopback kurulumu devam eder. Yalnız biri girilmişse deploy hata verir. İkisi varsa korumalı browser servisi eklenir. İkisini birden kaldırmak sonraki deploy'da browser servisini kapatır; mevcut Caddy route'u bu durumda 502 verir, VictoriaLogs açığa çıkmaz.
 
@@ -37,7 +37,7 @@ Cloudflare DNS'te `logs` adında A kaydı oluştur; önceki VPS adresin değişm
 
 ## Otomatik Caddy kurulumu
 
-`main`e güncel kodu gönderip `Logs CI and deploy → Run workflow` çalıştırman yeterli. SSH kullanıcısı mevcut kalıcı Caddyfile'a yazabilmeli; VPS'te Python 3 bulunmalı. Workflow mevcut container'ın persistent mount'unu bulur, auth/API/Typesense bloklarını koruyarak yalnız [log domain route'unu](../deploy/Caddyfile.example) ekler. Aynı route zaten varsa çoğaltmaz; başka bir servise giden mevcut log domain'ini sessizce değiştirmez.
+`main`e güncel kodu gönderip `Logs CI and deploy → Run workflow` çalıştırman yeterli. SSH kullanıcısı mevcut kalıcı Caddyfile'a yazabilmeli; VPS'te Python 3 bulunmalı. Workflow mevcut container'ın persistent mount'unu bulur, auth/API/Typesense bloklarını koruyarak yalnız [log domain route'unu](../services/logs/deploy/Caddyfile.example) ekler. Aynı route zaten varsa çoğaltmaz; başka bir servise giden mevcut log domain'ini sessizce değiştirmez.
 
 Değişiklikten önce `/opt/logs-on-vps/caddy-backups/` altında dosya modu `600` olan yedek alınır. Dosyanın inode'u korunarak yazılır; tek dosya bind mount'unda da değişiklik görünür. Caddy doğrulaması ve reload başarısızsa eski dosya geri yazılıp tekrar yüklenir. Başka bir deployment aynı anda Caddyfile'ı değiştirmişse onun değişikliğinin üzerine yazılmaz ve workflow hata bildirir.
 
@@ -68,14 +68,14 @@ Kurulumdan sonra Mac'te `curl -s -o /dev/null -w '%{http_code}\n' https://logs.v
 Yerel geliştirme:
 
 ```sh
-cd client
+cd services/logs/client
 npm ci
 npm test
 npm run build
-cd ../browser
+cd ../console
 go test -race ./...
 ```
 
-`npm run build` çıktıyı `browser/static/` içine üretir; derlenmiş asset'ler Git'e alınmaz. `LOGS_UI_USERNAME` ve bcrypt `LOGS_UI_PASSWORD_HASH` ile `go run .` servisi başlatır. Yalnız HTTP yerel testleri için `LOGS_INSECURE_COOKIE=1` kullanılabilir; üretim Compose dosyası bu ayarı içermez. İsteğe bağlı `LOGS_LISTEN` ve `VICTORIALOGS_URL` yerel portları ayarlar. HMR için ikinci terminalde `cd client && npm run dev` kullan; Vite API isteklerini `127.0.0.1:18080` adresindeki Go servisine geçirir. Docker varsa `RUN_BROWSER_TEST=1 python3 -m unittest discover -s tests -p 'test_browser.py' -v` gerçek container kontrolünü çalıştırır. CI client test/build, Go race testleri, Linux deploy testleri ve gerçek Docker ingestion/giriş/API izolasyonunu doğrular.
+`npm run build` çıktıyı `services/logs/console/static/` içine üretir; derlenmiş asset'ler Git'e alınmaz. `LOGS_UI_USERNAME` ve bcrypt `LOGS_UI_PASSWORD_HASH` ile `go run .` servisi başlatır. Yalnız HTTP yerel testleri için `LOGS_INSECURE_COOKIE=1` kullanılabilir; üretim Compose dosyası bu ayarı içermez. İsteğe bağlı `LOGS_LISTEN` ve `VICTORIALOGS_URL` yerel portları ayarlar. HMR için ikinci terminalde `cd services/logs/client && npm run dev` kullan; Vite API isteklerini `127.0.0.1:18080` adresindeki Go servisine geçirir. Docker varsa repo kökünde `RUN_BROWSER_TEST=1 python3 -m unittest discover -s tests -p 'test_browser.py' -v` gerçek container kontrolünü çalıştırır. CI client test/build, Go race testleri, Linux deploy testleri ve gerçek Docker ingestion/giriş/API izolasyonunu doğrular.
 
 Resmi kaynaklar: [Caddy şifre hash'leme](https://caddyserver.com/docs/command-line#caddy-hash-password), [VictoriaLogs sorgu API'si](https://docs.victoriametrics.com/victorialogs/querying/), [VictoriaLogs sorgu yetkisi](https://docs.victoriametrics.com/victorialogs/security-and-lb/#search-authorization).

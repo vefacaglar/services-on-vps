@@ -1,4 +1,5 @@
 name: Logs CI and deploy
+# Verifies and deploys every service under services/ (logs, Meilisearch).
 
 on:
   pull_request:
@@ -25,25 +26,25 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: client/package-lock.json
+          cache-dependency-path: services/logs/client/package-lock.json
       - name: Verify and build React client
-        working-directory: client
+        working-directory: services/logs/client
         run: |
           npm ci --no-fund --no-audit
           npm test
           npm run build
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version-file: browser/go.mod
-          cache-dependency-path: browser/go.sum
+          go-version-file: services/logs/console/go.mod
+          cache-dependency-path: services/logs/console/go.sum
       - name: Verify log console and session authentication
-        working-directory: browser
+        working-directory: services/logs/console
         run: go test -race ./...
       - name: Check deployment scripts
         run: |
-          sh -n scripts/start.sh scripts/smoke-test.sh
+          sh -n scripts/start.sh services/*/scripts/*.sh
           bash -n scripts/ssh-deploy.sh scripts/activate.sh
-          shellcheck scripts/*.sh
+          shellcheck scripts/*.sh services/*/scripts/*.sh
           python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Verify real Docker log ingestion
         run: ./scripts/start.sh
@@ -51,12 +52,32 @@ jobs:
         env:
           RUN_BROWSER_TEST: '1'
         run: python3 -m unittest discover -s tests -p 'test_browser.py' -v
+      - name: Verify Meilisearch with an ephemeral key
+        env:
+          LOGS_PROXY_NETWORK: meilisearch-ci
+        run: |
+          docker network create meilisearch-ci
+          (umask 077; printf 'MEILI_MASTER_KEY=%s\n' "$(openssl rand -hex 32)" > services/meilisearch/meilisearch.env)
+          ./services/meilisearch/scripts/start.sh
+          # A second run with unchanged config must not restart the container.
+          started=$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose -f services/meilisearch/compose.yml ps -q meilisearch)")
+          ./services/meilisearch/scripts/start.sh
+          test "$started" = "$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose -f services/meilisearch/compose.yml ps -q meilisearch)")"
       - name: Show service diagnostics
         if: failure()
-        run: docker compose logs --tail=60
+        run: |
+          docker compose -f services/logs/compose.yml logs --tail=60
+          docker compose -f services/meilisearch/compose.yml logs --tail=60 || true
       - name: Clean up test services
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        env:
+          LOGS_PROXY_NETWORK: meilisearch-ci
+        run: |
+          docker compose -f services/logs/compose.yml down --volumes --remove-orphans
+          if [ -f services/meilisearch/meilisearch.env ]; then
+            docker compose -f services/meilisearch/compose.yml down --volumes --remove-orphans
+          fi
+          docker network rm meilisearch-ci || true
 
   deploy:
     needs: verify
@@ -79,6 +100,7 @@ jobs:
           DEPLOY_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           LOGS_UI_USERNAME: ${{ secrets.LOGS_UI_USERNAME }}
           LOGS_UI_PASSWORD: ${{ secrets.LOGS_UI_PASSWORD }}
+          MEILI_MASTER_KEY: ${{ secrets.MEILI_MASTER_KEY }}
           LOGS_PROXY_NETWORK: ${{ vars.LOGS_PROXY_NETWORK }}
           LOGS_CADDY_CONTAINER: ${{ vars.LOGS_CADDY_CONTAINER }}
           LOGS_CADDY_CONFIG_PATH: ${{ vars.LOGS_CADDY_CONFIG_PATH }}

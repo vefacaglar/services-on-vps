@@ -1,9 +1,10 @@
-# Copied to compose.override.yml by the deployment bundle when UI secrets exist.
+# Copied to services/logs/compose.override.yml by the deployment bundle when UI
+# secrets exist; Compose loads it next to compose.yml.
 services:
   browser:
     build:
       context: .
-      dockerfile: browser/Dockerfile
+      dockerfile: console/Dockerfile
     image: logs-on-vps-browser:local
     restart: unless-stopped
     env_file:

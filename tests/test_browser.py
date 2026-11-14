@@ -28,7 +28,7 @@ class BrowserIntegrationTests(unittest.TestCase):
         cls.network = "logs-browser-" + uuid.uuid4().hex[:12]
         cls.password = "ephemeral-browser-" + uuid.uuid4().hex
         cls.environment = dict(os.environ, LOGS_PROXY_NETWORK=cls.network)
-        cls.compose = ["docker", "compose", "-f", str(ROOT / "compose.yml"),
+        cls.compose = ["docker", "compose", "-f", str(ROOT / "services/logs/compose.yml"),
                        "-f", str(Path(cls.directory.name) / "compose.override.yml")]
         cls.addClassCleanup(cls.cleanup)
         prepare = runpy.run_path(str(ROOT / "scripts/prepare-browser.py"))["prepare"]

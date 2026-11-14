@@ -1,6 +1,6 @@
 # GitHub Actions ile VPS kurulumu
 
-Bu rehber `.github/workflows/logs.yml` ile birebir eşleşir. GitHub repo/environment/DNS ayarlarını ve VPS hazırlığını sen yaparsın. Tarayıcıdan şifreli HTTPS erişimi için [browser kurulumu](browser-access.md) bölümünü de uygula.
+Bu rehber `.github/workflows/logs.yml` ile birebir eşleşir. Workflow repo'daki tüm servisleri (`services/logs`, `services/meilisearch`) tek release olarak doğrular ve gönderir. GitHub repo/environment/DNS ayarlarını ve VPS hazırlığını sen yaparsın. Tarayıcıdan şifreli HTTPS erişimi için [browser kurulumu](browser-access.md) bölümünü de uygula.
 
 ## GitHub repo ve Environment
 
@@ -23,8 +23,9 @@ Private repo'da Environment kullanımı GitHub planına bağlıdır. Menü gör�
 | `VPS_PORT` | İsteğe bağlı SSH portu. Eklenmezse `22`. |
 | `LOGS_UI_USERNAME` | İsteğe bağlı browser kullanıcı adı. Örneğin `vefa`; `LOGS_UI_PASSWORD` ile birlikte girilir. |
 | `LOGS_UI_PASSWORD` | İsteğe bağlı browser şifresi. 12–72 UTF-8 byte, satır sonu veya başta/sonda boşluk yok. Workflow hash'leyip VPS'e gönderir. |
+| `MEILI_MASTER_KEY` | İsteğe bağlı Meilisearch master key'i. En az 16 byte, boşluk/satır sonu yok; örneğin `openssl rand -hex 32` çıktısı. Eklenmezse Meilisearch deploy edilmez. Ayrıntılar [Meilisearch rehberinde](../services/meilisearch/README.md). |
 
-SSH parola ile giriş bu workflow'da desteklenmez. Repo, registry PAT'i, GHCR login'i, `AUTH_ENV`, API/DB/Typesense secret'ları gerekmez; resmi public image'lar çekilir. `GITHUB_TOKEN` GitHub tarafından sağlanır, elle eklenmez.
+SSH parola ile giriş bu workflow'da desteklenmez. Repo, registry PAT'i, GHCR login'i, `AUTH_ENV`, API/DB/Typesense secret'ları gerekmez; Typesense bu repo tarafından yönetilmez. resmi public image'lar çekilir. `GITHUB_TOKEN` GitHub tarafından sağlanır, elle eklenmez.
 
 ## Deploy anahtarı
 
@@ -90,7 +91,7 @@ Bu değişken **repository** seviyesinde olmalı; deploy job'unun başlaması En
 
 İsteğe bağlı olarak `Settings → Environments → logs-production → Environment variables` altında `VPS_DEPLOY_DIR` tanımlayabilirsin. Varsayılan `/opt/logs-on-vps`. Yol mutlak olmalı; harf, sayı, `_`, `-` ve `/` kullanabilir. SSH kullanıcısının bu dizini oluşturma/yazma yetkisi olmalı.
 
-Şifreli browser erişiminde mevcut Caddy varsayılanlarından farklı bir kurulum için aynı Environment variables bölümünde `LOGS_PROXY_NETWORK`, `LOGS_CADDY_CONTAINER` ve `LOGS_CADDY_CONFIG_PATH` kullanılabilir. [Browser rehberinde](browser-access.md) varsayılanlar açıklanır; standart kurulumda ek değişken gerekmez.
+Şifreli browser erişiminde mevcut Caddy varsayılanlarından farklı bir kurulum için aynı Environment variables bölümünde `LOGS_PROXY_NETWORK` (Meilisearch de aynı ortak ağa bu değerle bağlanır), `LOGS_CADDY_CONTAINER` ve `LOGS_CADDY_CONFIG_PATH` kullanılabilir. [Browser rehberinde](browser-access.md) varsayılanlar açıklanır; standart kurulumda ek değişken gerekmez.
 
 ## VPS hazırlığı ve runtime ayarları
 
@@ -104,7 +105,7 @@ docker compose version
 command -v bash tar curl flock
 ```
 
-İlk deploy'da `/opt/logs-on-vps/.env`, örnek değerlerle otomatik oluşturulur. Sonraki deploy'lar bu dosyayı değiştirmez. Önceden ayarlamak istersen VPS'te:
+İlk deploy'da `/opt/logs-on-vps/.env`, `services/logs/.env.example` değerleriyle otomatik oluşturulur. Sonraki deploy'lar bu dosyayı değiştirmez. Bu tek dosya tüm servislerin ortak runtime ayarıdır; deploy onu her release'te `services/*/.env` olarak bağlar. Meilisearch ayarlarını (`MEILI_MEMORY_LIMIT`, `MEILI_MAX_INDEXING_MEMORY` vb.) değiştirmek istersen [services/meilisearch/.env.example](../services/meilisearch/.env.example) içindeki satırları buraya ekle. Önceden ayarlamak istersen VPS'te:
 
 ```sh
 mkdir -p /opt/logs-on-vps
@@ -130,23 +131,24 @@ Secret'ları ve Environment'ı hazırladıktan sonra repository variable `LOGS_D
 
 PR'larda yalnız kontrol ve geçici Docker log testi çalışır. `main` push'ları ve `main` üzerinde manuel çalıştırmalar, kontroller geçince `logs-production` üzerinden deploy eder. Başka dalda manuel çalıştırma deploy etmez. Varsa Environment onayını GitHub'da sen verirsin.
 
-Her deploy dosyaları `releases/<commit>-<run>-<attempt>/` altına yükler. Kalıcı `.env` ortak kalır. Sağlık, gerçek Docker log testi ve etkinse Caddy kurulumu geçince `current` symlink'i yeni release'e alınır. Docker volume adları sabittir; release dizini değiştiğinde log verisi korunur. Browser erişimi etkinse mevcut Caddy'ye yalnız log domain route'u eklenir; diğer uygulama route'ları korunur. DNS kaydını sen ayarlarsın. Bu akışı kullanırken aynı Compose projesine paralel olarak eski rsync dizininden deploy yapma.
+Her deploy dosyaları `releases/<commit>-<run>-<attempt>/` altına yükler; servisler release içinde `services/<ad>/` dizinlerindedir. Release kökündeki `scripts/start.sh` önce log servisini, `MEILI_MASTER_KEY` varsa ardından Meilisearch'ü başlatıp doğrular. Kalıcı `.env` ortak kalır. Sağlık, gerçek Docker log testi ve etkinse Caddy kurulumu geçince `current` symlink'i yeni release'e alınır. Docker volume adları sabittir; release dizini değiştiğinde log verisi korunur. Browser erişimi etkinse mevcut Caddy'ye yalnız log domain route'u eklenir; diğer uygulama route'ları korunur. DNS kaydını sen ayarlarsın. Bu akışı kullanırken aynı Compose projesine paralel olarak eski rsync dizininden deploy yapma.
 
-Browser secret'ları varsa bundle'a yalnız hash içeren `browser.env`, browser servisini ekleyen `compose.override.yml` ve Caddy hedefini belirleyen `browser-settings.json` da girer. Workflow Caddy route'unu otomatik ayarlar; VPS'e elle bağlanman gerekmez. GitHub/DNS ayarları [ayrı rehberdedir](browser-access.md).
+Browser secret'ları varsa bundle'a `services/logs/` altında yalnız hash içeren `browser.env`, browser servisini ekleyen `compose.override.yml` ve Caddy hedefini belirleyen `browser-settings.json` da girer. `MEILI_MASTER_KEY` varsa `services/meilisearch/meilisearch.env` (mod `600`) ve `LOGS_PROXY_NETWORK` tanımlıysa ağ adını içeren `services/meilisearch/compose.override.yml` eklenir; key komut argümanına veya loga yazılmaz. Workflow Caddy route'unu otomatik ayarlar; VPS'e elle bağlanman gerekmez. GitHub/DNS ayarları [ayrı rehberdedir](browser-access.md).
 
 ## Hata ve geri dönüş
 
-Deploy başarısızsa workflow kırmızı olur. Önceki başarılı release varsa otomatik tekrar başlatılmaya çalışılır; ilk yönetilen deploy'da geri dönülecek release yoktur. Rollback de başarısızsa workflow bunu açıkça yazar. Veri volume'ları geri sarılmaz; sürüm düşürürken VictoriaLogs veri uyumluluğunu ayrıca değerlendir.
+Deploy başarısızsa workflow kırmızı olur. Önceki başarılı release varsa onun `scripts/start.sh`'ı otomatik tekrar çalıştırılır; `services/` düzeninden önceki release'ler de geçerli rollback hedefidir (yalnız log servisini başlatırlar, Meilisearch container'ına ve verisine dokunmazlar); ilk yönetilen deploy'da geri dönülecek release yoktur. Rollback de başarısızsa workflow bunu açıkça yazar. Veri volume'ları geri sarılmaz; sürüm düşürürken VictoriaLogs veri uyumluluğunu ayrıca değerlendir.
 
 VPS'te son başarılı release'in durumunu incele:
 
 ```sh
-cd /opt/logs-on-vps/current
+cd /opt/logs-on-vps/current/services/logs
 docker compose ps
 docker compose logs --tail=100
+cd ../meilisearch && docker compose ps
 ```
 
-İlk deploy hiç başarılı olmadıysa `current` bulunmaz; başarısız run'ın logunda yazan `releases/<id>` dizinine gir. Runtime ayarını değiştirdikten sonra yeniden `Run workflow` kullanabilir veya VPS'te başarılı release'ten `./scripts/start.sh` çalıştırabilirsin. Manuel yeniden başlatma GitHub Environment onayından geçmez. Eski koda dönmek için GitHub'da ilgili değişikliği revert edip `main`e gönder; normal doğrulama/deploy akışı çalışır.
+İlk deploy hiç başarılı olmadıysa `current` bulunmaz; başarısız run'ın logunda yazan `releases/<id>` dizinine gir. Runtime ayarını değiştirdikten sonra yeniden `Run workflow` kullanabilir veya VPS'te başarılı release'in kökünden `./scripts/start.sh` çalıştırabilirsin. Manuel yeniden başlatma GitHub Environment onayından geçmez. Eski koda dönmek için GitHub'da ilgili değişikliği revert edip `main`e gönder; normal doğrulama/deploy akışı çalışır.
 
 Arayüz için Mac'te `ssh -i ~/.ssh/hostinger_vps -N -L 9428:127.0.0.1:9428 root@187.126.24.87` tünelini açık tut ve [VictoriaLogs'u aç](http://localhost:9428/select/vmui/). Runtime portunu değiştirdiysen tünelin sağ tarafını güncelle.
 

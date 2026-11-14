@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Create optional browser configuration without persisting the plaintext password."""
+"""Create optional browser configuration without persisting the plaintext password.
+
+The destination is the logs service directory of the bundle (services/logs), so
+compose.override.yml sits next to compose.yml and ./browser.env resolves there.
+"""
 import json
 import os
 from pathlib import Path
@@ -44,7 +48,7 @@ def prepare(destination, environment=None, hash_password=None):
     credentials.touch(mode=0o600)
     credentials.chmod(0o600)
     credentials.write_text(f"LOGS_UI_USERNAME={username}\nLOGS_UI_PASSWORD_HASH={password_hash}\n")
-    override = (ROOT / "deploy/compose.browser.yml").read_text()
+    override = (ROOT / "services/logs/deploy/compose.browser.yml").read_text()
     network = environment.get("LOGS_PROXY_NETWORK", "")
     if network:
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", network):
