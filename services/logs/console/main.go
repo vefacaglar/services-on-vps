@@ -37,8 +37,9 @@ type server struct {
 	proxy                             *httputil.ReverseProxy
 	mu                                sync.Mutex
 	sessions                          map[[32]byte]time.Time
-	loginAttempts                     []time.Time
+	loginGuard                        *loginGuard
 	loginSlot                         chan struct{}
+	compareHash                       func(hash, password []byte) error
 	querySlots                        chan struct{}
 	cgroupRoot, meminfoPath, diskPath string
 	sys                               systemState
@@ -60,7 +61,7 @@ func newServer(username, hash, upstream string, insecure bool) (*server, error) 
 		return nil, fmt.Errorf("invalid VICTORIALOGS_URL")
 	}
 	s := &server{username: username, passwordHash: hash, upstream: upstream, insecure: insecure,
-		client: &http.Client{Timeout: 25 * time.Second}, sessions: make(map[[32]byte]time.Time), loginSlot: make(chan struct{}, 1), querySlots: make(chan struct{}, 2),
+		client: &http.Client{Timeout: 25 * time.Second}, sessions: make(map[[32]byte]time.Time), loginSlot: make(chan struct{}, 4), loginGuard: newLoginGuard(), compareHash: bcrypt.CompareHashAndPassword, querySlots: make(chan struct{}, 2),
 		cgroupRoot: "/host/cgroup", meminfoPath: "/proc/meminfo", diskPath: "/", sys: systemState{cpu: make(map[string]cpuSample)},
 		meiliURL: "http://meilisearch:7700", meiliSlots: make(chan struct{}, 4),
 		meiliClient: &http.Client{Timeout: meiliTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
@@ -145,49 +146,67 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "Geçersiz istek kaynağı.")
 		return
 	}
+	ip := clientIP(r)
+	switch decision, wait := s.loginGuard.begin(ip); decision {
+	case loginAllowed:
+	case loginBusy:
+		w.Header().Set("Retry-After", "1")
+		fail(w, 429, "Biraz sonra tekrar dene.")
+		return
+	default:
+		// Locked or globally throttled: no bcrypt, same answer for right or wrong passwords.
+		w.Header().Set("Retry-After", strconv.Itoa(int((wait+time.Second-1)/time.Second)))
+		fail(w, 429, "Çok fazla başarısız deneme. Daha sonra tekrar dene.")
+		return
+	}
+	ok := false
+	finished := false
 	var input struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
+	defer func() {
+		if finished {
+			return
+		}
+		failures, lock := s.loginGuard.finish(ip, ok)
+		switch {
+		case ok:
+			log.Printf("login succeeded ip=%s", ip)
+		case lock > 0:
+			log.Printf("login locked ip=%s user=%q failures=%d lock=%s", ip, logUsername(input.Username), failures, lock)
+		default:
+			log.Printf("login failed ip=%s user=%q failures=%d", ip, logUsername(input.Username), failures)
+		}
+	}()
 	if !decode(w, r, &input) {
+		// Malformed requests are not password guesses; release the slot without counting.
+		finished = true
+		s.loginGuard.cancel(ip)
 		return
 	}
 	if len(input.Password) > 72 || len(input.Username) > 64 {
 		fail(w, 401, "Kullanıcı adı veya şifre yanlış.")
 		return
 	}
-	now := time.Now()
-	s.mu.Lock()
-	fresh := s.loginAttempts[:0]
-	for _, t := range s.loginAttempts {
-		if now.Sub(t) < time.Minute {
-			fresh = append(fresh, t)
-		}
-	}
-	s.loginAttempts = fresh
-	limited := len(fresh) >= 6
-	if !limited {
-		s.loginAttempts = append(s.loginAttempts, now)
-	}
-	s.mu.Unlock()
-	if limited {
-		w.Header().Set("Retry-After", "60")
-		fail(w, 429, "Çok fazla deneme. Bir dakika sonra tekrar dene.")
-		return
-	}
 	select {
 	case s.loginSlot <- struct{}{}:
 		defer func() { <-s.loginSlot }()
 	default:
+		finished = true
+		s.loginGuard.cancel(ip)
+		w.Header().Set("Retry-After", "1")
 		fail(w, 429, "Biraz sonra tekrar dene.")
 		return
 	}
-	validPassword := bcrypt.CompareHashAndPassword([]byte(s.passwordHash), []byte(input.Password)) == nil
+	validPassword := s.compareHash([]byte(s.passwordHash), []byte(input.Password)) == nil
 	validUser := subtle.ConstantTimeCompare([]byte(input.Username), []byte(s.username)) == 1
 	if !validPassword || !validUser {
 		fail(w, 401, "Kullanıcı adı veya şifre yanlış.")
 		return
 	}
+	ok = true
+	now := time.Now()
 	var tokenBytes [32]byte
 	if _, err := rand.Read(tokenBytes[:]); err != nil {
 		fail(w, 500, "Oturum açılamadı.")

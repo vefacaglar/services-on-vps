@@ -59,7 +59,20 @@ Editörün dinamik stil etiketleri HTML başına üretilen CSP nonce'u kullanır
 
 Kayıtlar 100'er yüklenir. Aşağı kaydırmak veya `daha eski kayıtlar` düğmesine basmak sonraki sayfayı getirir. Başlangıç/bitiş zamanı sayfalar arasında sabit kalır; `yenile` yeni bir zaman aralığı açar. Eşit zaman damgaları stream ve mesaj ile sıralanır. Geç gelen geçmiş logların depoya eklenmesi veya retention silmeleri sırasında offset sayfalama gerçek bir veritabanı snapshot'ı değildir; tam aktarım garantisi vermez. Otomatik yenileme 5 saniyede bir çalışır; eski sayfalara geçildiğinde, bir log detayı açıkken veya sekme arka plandayken bekler. Sorgu başına 20 saniye ve geçmişte 1.000.000 offset sınırı vardır; çok geniş aralıkları daralt.
 
-Oturum çerezi `Secure`, `HttpOnly`, `SameSite=Strict` ve `__Host-` öneki kullanır; 12 saat sonra sona erer. Oturumlar bellekte tutulur, servis yeniden başladığında yeniden giriş gerekir. Çıkış oturumu sunucuda iptal eder. Giriş denemeleri dakikada altı istekle ve tek eşzamanlı bcrypt doğrulamasıyla sınırlıdır. Giriş, çıkış ve özel API POST istekleri aynı Origin ve özel istek başlığı gerektirir. Kullanıcı adı/şifre ve loglar tarayıcı depolamasına yazılmaz.
+Oturum çerezi `Secure`, `HttpOnly`, `SameSite=Strict` ve `__Host-` öneki kullanır; 12 saat sonra sona erer. Oturumlar bellekte tutulur, servis yeniden başladığında yeniden giriş gerekir. Çıkış oturumu sunucuda iptal eder. Giriş denemeleri aşağıdaki brute-force korumasıyla sınırlıdır. Giriş, çıkış ve özel API POST istekleri aynı Origin ve özel istek başlığı gerektirir. Kullanıcı adı/şifre ve loglar tarayıcı depolamasına yazılmaz.
+
+## Brute-force koruması
+
+- **İstemci IP'si:** Caddy'nin `reverse_proxy` yönergesi `X-Forwarded-For` başlığına gerçek istemci adresini ekler. Go servisi bu başlığa yalnız doğrudan bağlantı özel ağdan (Docker ağı, loopback) geliyorsa güvenir ve en sağdaki, yani Caddy'nin eklediği değeri kullanır; istemcinin sahte değerleri yok sayılır. IPv6 adresleri `/64` ağına göre sayılır. Cloudflare proxy (turuncu bulut) açılırsa tüm istekler Cloudflare adreslerinden gelir; bu koruma `DNS only` kurulumuna göre tasarlanmıştır.
+- **IP başına kilit:** Yalnız başarısız denemeler sayılır. Bir IP 15 dakika içinde 5 kez başarısız olursa 15 dakika kilitlenir. Her yeni kilit süreyi ikiye katlar (30 dk, 1 sa, 2 sa … en fazla 24 sa). Son kilidin bitiminden sonra 24 saat sorunsuz geçerse süre yeniden 15 dakikadan başlar. Başarılı giriş o IP'nin sayacını sıfırlar. Kilitliyken istek `429` ve `Retry-After` ile döner; bcrypt çalışmaz ve şifre doğru da olsa yanlış da olsa aynı yanıt verilir. Aynı IP'den aynı anda tek doğrulama yapılır.
+- **Genel sınır:** Tüm IP'lerden son bir saatte toplam 100 başarısız deneme olursa, son 30 gün içinde başarılı giriş yapmamış IP'ler sayı düşene kadar `429` alır. Son 30 günde giriş yapılmış IP'ler bu sınırdan muaftır (IP başına kilitten değil). Bu liste bellekte tutulur ve servis yeniden başlayınca sıfırlanır.
+- **Kaynak sınırları:** En fazla 10.000 IP izlenir (dolunca en eski kayıt silinir), en fazla 256 güvenilir IP tutulur, aynı anda en fazla 4 bcrypt doğrulaması çalışır.
+
+Her başarısız giriş `login failed`, her kilit `login locked`, her başarılı giriş `login succeeded` satırı olarak loglanır. Satırlarda IP, denenen kullanıcı adı (en fazla 64 bayt), başarısız deneme sayısı ve kilit süresi bulunur; şifre asla yazılmaz. Genel sınır devreye girdiğinde bir kez `login global limit engaged` yazılır. Log konsolunda:
+
+```text
+compose_service:browser ("login failed" OR "login locked" OR "login global limit")
+```
 
 Şifreyi değiştirmek için `LOGS_UI_PASSWORD` secret'ını güncelle ve tekrar `Run workflow` çalıştır. Browser servisi yeni hash ile yeniden oluşturulur, eski oturumlar sona erer. Eski release'e rollback eski hash'i de geri getirir.
 
