@@ -79,6 +79,23 @@ class ActivationTests(unittest.TestCase):
         self.assertEqual((self.base / "current").resolve(), previous)
         self.assertEqual((self.base / "attempts").read_text().splitlines(), [DEPLOY_ID, NEXT_ID, DEPLOY_ID])
 
+    def test_woodpecker_caddy_failure_restores_previous_release(self):
+        previous = self.release(DEPLOY_ID)
+        self.assertEqual(self.activate(DEPLOY_ID).returncode, 0)
+        newer = self.release(NEXT_ID)
+        (newer / 'services/woodpecker').mkdir(parents=True)
+        (newer / 'services/woodpecker/server.env').write_text('test only\n')
+        (newer / 'services/woodpecker/caddy-settings.json').write_text('{}')
+        binaries = self.base / 'bin'
+        binaries.mkdir()
+        python = binaries / 'python3'
+        python.write_text('#!/bin/sh\nexit 1\n')
+        python.chmod(0o755)
+        environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'])
+        result = self.activate(NEXT_ID, environment)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.base / 'current').resolve(), previous)
+
     def test_first_deploy_failure_does_not_publish_current_link(self):
         self.release(DEPLOY_ID, status=1)
         result = self.activate(DEPLOY_ID)
@@ -122,10 +139,11 @@ class TransportTests(unittest.TestCase):
         self.repo = self.base / "repo"
         shutil.copytree(ROOT, self.repo, ignore=shutil.ignore_patterns(
             ".git", "node_modules", "__pycache__", ".env", "browser.env", "compose.override.yml",
-            "meilisearch.env", "static"))
+            "meilisearch.env", "server.env", "agent.env", "caddy-settings.json", "static"))
         (self.repo / ".env").write_text("DO_NOT_UPLOAD=private\n")
         (self.repo / "services/logs/.env").write_text("DO_NOT_UPLOAD=private\n")
         (self.repo / "services/meilisearch/meilisearch.env").write_text("MEILI_MASTER_KEY=local-only-key\n")
+        (self.repo / "services/woodpecker/server.env").write_text("WOODPECKER_GITHUB_SECRET=local-only-secret\n")
         (self.repo / "unrelated-private.txt").write_text("private\n")
         self.bin = self.base / "bin"
         self.bin.mkdir()
@@ -147,7 +165,9 @@ if 'activate.sh' in args[-1]:
                         VPS_HOST="vps.example.test", VPS_USER="root", VPS_PORT="22",
                         VPS_SSH_KEY="test-private-key", VPS_KNOWN_HOSTS="test-host-key",
                         VPS_DEPLOY_DIR="/opt/logs-on-vps", DEPLOY_ID=DEPLOY_ID,
-                        LOGS_UI_USERNAME="", LOGS_UI_PASSWORD="", MEILI_MASTER_KEY="",
+                        LOGS_UI_USERNAME="", LOGS_UI_PASSWORD="", LOGS_UI_TOTP_SECRET="", MEILI_MASTER_KEY="",
+                        WOODPECKER_GITHUB_CLIENT="", WOODPECKER_GITHUB_SECRET="", WOODPECKER_AGENT_SECRET="",
+                        WOODPECKER_ADMIN="", WOODPECKER_API_TOKEN="", WOODPECKER_DOMAIN="",
                         SSH_CALLS=str(self.base / "calls"), BUNDLE_COPY=str(self.base / "bundle.tar.gz"))
 
     def deploy(self):
@@ -163,11 +183,12 @@ if 'activate.sh' in args[-1]:
                      "services/logs/.dockerignore", "services/logs/compose.yml", "services/logs/console/Dockerfile",
                      "services/logs/client/src/main.tsx", "services/logs/client/package-lock.json",
                      "services/logs/scripts/start.sh", "services/logs/vector/vector.yaml",
-                     "services/meilisearch/compose.yml", "services/meilisearch/scripts/start.sh"]:
+                     "services/meilisearch/compose.yml", "services/meilisearch/scripts/start.sh",
+                     "services/woodpecker/compose.yml", "services/woodpecker/scripts/start.sh"]:
             self.assertIn(name, names)
         self.assertFalse(any("node_modules" in name for name in names))
         for name in [".env", "services/logs/.env", "services/meilisearch/meilisearch.env",
-                     "services/logs/browser.env"]:
+                     "services/logs/browser.env", "services/woodpecker/server.env", "services/woodpecker/agent.env"]:
             self.assertNotIn(name, names)
         self.assertNotIn("unrelated-private.txt", names)
         calls = [json.loads(line) for line in (self.base / "calls").read_text().splitlines()]
@@ -253,6 +274,51 @@ print('$2a$14$' + 'A' * 53)
         for line in (self.base / "calls").read_text().splitlines():
             self.assertNotIn(key, line)
 
+    def test_totp_secret_travels_only_in_private_browser_env(self):
+        secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599", LOGS_UI_TOTP_SECRET=secret)
+        fake_docker = self.bin / "docker"
+        fake_docker.write_text("""#!/usr/bin/env python3
+import os, sys
+assert 'LOGS_UI_TOTP_SECRET' not in os.environ
+sys.stdin.read()
+print('$2a$14$' + 'A' * 53)
+""")
+        fake_docker.chmod(0o755)
+        fake_ssh = self.bin / "ssh"
+        fake_ssh.write_text(fake_ssh.read_text().replace(
+            "args = sys.argv[1:]", "args = sys.argv[1:]\nassert 'LOGS_UI_TOTP_SECRET' not in os.environ"))
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(secret, result.stdout + result.stderr)
+        with tarfile.open(self.base / "bundle.tar.gz") as bundle:
+            browser = bundle.getmember("services/logs/browser.env")
+            self.assertEqual(browser.mode & 0o777, 0o600)
+            self.assertIn(f"LOGS_UI_TOTP_SECRET={secret}\n", bundle.extractfile(browser).read().decode())
+            for other in bundle.getmembers():
+                if other.isfile() and other.name != browser.name:
+                    self.assertNotIn(secret.encode(), bundle.extractfile(other).read(), other.name)
+        for line in (self.base / "calls").read_text().splitlines():
+            self.assertNotIn(secret, line)
+
+    def test_browser_env_has_no_totp_secret_when_unset(self):
+        self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599")
+        fake_docker = self.bin / "docker"
+        fake_docker.write_text("#!/usr/bin/env python3\nimport sys\nsys.stdin.read()\nprint('$2a$14$' + 'A' * 53)\n")
+        fake_docker.chmod(0o755)
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tarfile.open(self.base / "bundle.tar.gz") as bundle:
+            self.assertNotIn(b"TOTP", bundle.extractfile("services/logs/browser.env").read())
+
+    def test_invalid_totp_secret_stops_before_connecting(self):
+        self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599",
+                        LOGS_UI_TOTP_SECRET="not-base32-secret-0189")
+        result = self.deploy()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("not-base32-secret-0189", result.stdout + result.stderr)
+        self.assertFalse((self.base / "calls").exists())
+
     def test_postgres_url_travels_only_in_private_browser_env(self):
         dsn = "postgres://logs_console:pg-secret-7731@postgres:5432/postgres"
         self.env.update(LOGS_UI_USERNAME="vefa", LOGS_UI_PASSWORD="not-saved-anywhere-599", POSTGRES_URL=dsn,
@@ -286,6 +352,37 @@ print('$2a$14$' + 'A' * 53)
         result = self.deploy()
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("pg-secret-7731", result.stdout + result.stderr)
+        self.assertFalse((self.base / "calls").exists())
+
+    def test_woodpecker_secrets_travel_only_in_private_env_files(self):
+        secret, agent = "gh-oauth-secret-" + "5" * 24, "b7" * 32
+        self.env.update(WOODPECKER_GITHUB_CLIENT="Ov23liTESTclient0001", WOODPECKER_GITHUB_SECRET=secret,
+                        WOODPECKER_AGENT_SECRET=agent, WOODPECKER_ADMIN="octo-cat", LOGS_PROXY_NETWORK="existing_proxy")
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(secret, result.stdout + result.stderr)
+        self.assertNotIn(agent, result.stdout + result.stderr)
+        private = {"services/woodpecker/server.env", "services/woodpecker/agent.env"}
+        with tarfile.open(self.base / "bundle.tar.gz") as bundle:
+            for name in private:
+                self.assertEqual(bundle.getmember(name).mode & 0o777, 0o600)
+            server = bundle.extractfile("services/woodpecker/server.env").read().decode()
+            self.assertIn(f"WOODPECKER_GITHUB_SECRET={secret}\n", server)
+            self.assertNotIn("local-only-secret", server)
+            self.assertIn("name: existing_proxy", bundle.extractfile("services/woodpecker/compose.override.yml").read().decode())
+            self.assertIn("ci.vefacaglar.com", bundle.extractfile("services/woodpecker/caddy-settings.json").read().decode())
+            for other in bundle.getmembers():
+                if other.isfile() and other.name not in private:
+                    data = bundle.extractfile(other).read()
+                    self.assertNotIn(secret.encode(), data, other.name)
+                    self.assertNotIn(agent.encode(), data, other.name)
+        for line in (self.base / "calls").read_text().splitlines():
+            self.assertNotIn(secret, line)
+            self.assertNotIn(agent, line)
+
+    def test_partial_woodpecker_configuration_stops_before_connecting(self):
+        self.env.update(WOODPECKER_GITHUB_CLIENT="Ov23liTESTclient0001", WOODPECKER_ADMIN="octo-cat")
+        self.assertNotEqual(self.deploy().returncode, 0)
         self.assertFalse((self.base / "calls").exists())
 
     def test_invalid_meilisearch_key_stops_before_connecting(self):

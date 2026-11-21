@@ -40,12 +40,16 @@ release="$VPS_DEPLOY_DIR/releases/$DEPLOY_ID"
 # Generated secrets land in the same paths they take inside the release.
 # prepare-browser.py also copies MEILI_MASTER_KEY, POSTGRES_URL (or the older
 # POSTGRES_READONLY_URL) and the POSTGRES_WRITE_ENABLED switch (when set) into
-# the 0600 browser.env for the console's Meilisearch and PostgreSQL views.
+# the 0600 browser.env for the console's Meilisearch and PostgreSQL views, and
+# WOODPECKER_API_TOKEN for its CI section, and the optional LOGS_UI_TOTP_SECRET
+# second factor.
 stage="$work_dir/stage"
 python3 scripts/prepare-browser.py "$stage/services/logs"
-unset LOGS_UI_PASSWORD LOGS_UI_USERNAME POSTGRES_URL POSTGRES_READONLY_URL POSTGRES_WRITE_ENABLED
+unset LOGS_UI_PASSWORD LOGS_UI_USERNAME LOGS_UI_TOTP_SECRET POSTGRES_URL POSTGRES_READONLY_URL POSTGRES_WRITE_ENABLED WOODPECKER_API_TOKEN
 python3 scripts/prepare-meilisearch.py "$stage/services/meilisearch"
 unset MEILI_MASTER_KEY
+python3 scripts/prepare-woodpecker.py "$stage/services/woodpecker"
+unset WOODPECKER_GITHUB_CLIENT WOODPECKER_GITHUB_SECRET WOODPECKER_AGENT_SECRET
 
 # Explicit allowlist: .env, SSH keys and local files never travel.
 logs=services/logs
@@ -56,9 +60,13 @@ bundle_paths+=("$logs/client/package.json" "$logs/client/package-lock.json" "$lo
 bundle_paths+=("$logs/client/vite.config.ts" "$logs/client/index.html" "$logs/client/src" "$logs/client/public")
 bundle_paths+=(services/meilisearch/compose.yml services/meilisearch/.env.example)
 bundle_paths+=(services/meilisearch/README.md services/meilisearch/scripts)
+bundle_paths+=(services/woodpecker/compose.yml services/woodpecker/.env.example)
+bundle_paths+=(services/woodpecker/README.md services/woodpecker/scripts)
 generated=()
 for file in "$logs/browser.env" "$logs/compose.override.yml" "$logs/browser-settings.json" \
-  services/meilisearch/meilisearch.env services/meilisearch/compose.override.yml; do
+  services/meilisearch/meilisearch.env services/meilisearch/compose.override.yml \
+  services/woodpecker/server.env services/woodpecker/agent.env \
+  services/woodpecker/compose.override.yml services/woodpecker/caddy-settings.json; do
   [[ -f "$stage/$file" ]] && generated+=("$file")
 done
 if (( ${#generated[@]} )); then

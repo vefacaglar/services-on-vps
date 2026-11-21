@@ -1,0 +1,99 @@
+name: woodpecker
+
+services:
+  server:
+    # v3.20.1; the digest pins the multi-arch image index.
+    image: woodpeckerci/woodpecker-server:v3.20.1@sha256:0f31560e29d67ec4a06d6eeee4bac38d2a2697a6a741b8a0db3998180f3a3517
+    restart: unless-stopped
+    # GitHub OAuth client, agent/gRPC secrets, admin login and public URL;
+    # written 0600 by the deploy, never in Git.
+    env_file:
+      - path: ./server.env
+        format: raw
+    environment:
+      WOODPECKER_GITHUB: "true"
+      # Closed registration: only WOODPECKER_ADMIN logins can sign in.
+      WOODPECKER_OPEN: "false"
+      WOODPECKER_DISABLE_USER_AGENT_REGISTRATION: "true"
+      WOODPECKER_LOG_LEVEL: ${WOODPECKER_LOG_LEVEL:-info}
+    ports:
+      # Health checks and SSH-tunnel access only; Caddy and the log console
+      # reach the server over the proxy network.
+      - "127.0.0.1:${WOODPECKER_HTTP_PORT:-8610}:8000"
+    volumes:
+      - woodpecker-data:/var/lib/woodpecker
+    networks:
+      default:
+      proxy:
+        aliases: [woodpecker-server]
+    healthcheck:
+      test: [CMD, /bin/woodpecker-server, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: ${WOODPECKER_SERVER_MEMORY_LIMIT:-256m}
+    cpus: ${WOODPECKER_SERVER_CPU_LIMIT:-0.5}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  agent:
+    # v3.20.1; the digest pins the multi-arch image index.
+    image: woodpeckerci/woodpecker-agent:v3.20.1@sha256:a7d7299a13add0b3936fa0ac9ed23507fe283a7fc7d9596c4289d7e8206541eb
+    restart: unless-stopped
+    # WOODPECKER_AGENT_SECRET only.
+    env_file:
+      - path: ./agent.env
+        format: raw
+    environment:
+      WOODPECKER_SERVER: server:9000
+      WOODPECKER_BACKEND: docker
+      WOODPECKER_HOSTNAME: ${VPS_LOG_HOST:-vps}
+      # One build at a time keeps the shared VPS responsive.
+      WOODPECKER_MAX_WORKFLOWS: ${WOODPECKER_MAX_WORKFLOWS:-1}
+      # Per step container, in bytes (default 2 GiB); 0 removes the limit.
+      WOODPECKER_BACKEND_DOCKER_LIMIT_MEM: ${WOODPECKER_STEP_MEMORY_BYTES:-2147483648}
+      WOODPECKER_BACKEND_DOCKER_LIMIT_MEM_SWAP: ${WOODPECKER_STEP_MEMORY_BYTES:-2147483648}
+      WOODPECKER_LOG_LEVEL: ${WOODPECKER_LOG_LEVEL:-info}
+    depends_on:
+      server:
+        condition: service_healthy
+    volumes:
+      - woodpecker-agent:/etc/woodpecker
+      # Steps run as containers on the host daemon: whoever controls a
+      # pipeline definition controls Docker on this server.
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+    healthcheck:
+      test: [CMD, /bin/woodpecker-agent, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: ${WOODPECKER_AGENT_MEMORY_LIMIT:-128m}
+    cpus: ${WOODPECKER_AGENT_CPU_LIMIT:-0.5}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  woodpecker-data:
+  woodpecker-agent:
+
+networks:
+  proxy:
+    external: true
+    name: ${LOGS_PROXY_NETWORK:-databases_default}

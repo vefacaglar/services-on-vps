@@ -89,7 +89,9 @@ export function Header({ username }: { username?: string }) {
                         ? "meilisearch"
                         : pathname.startsWith("/postgres")
                           ? "postgres"
-                          : "advanced",
+                          : pathname === "/ci" || pathname.startsWith("/ci/")
+                            ? "ci"
+                            : "advanced",
                 )}
               </span>
             </>
@@ -132,6 +134,7 @@ export function Shell({
           <NavLink to="/system">{t("system")}</NavLink>
           <NavLink to="/meilisearch">{t("meilisearch")}</NavLink>
           <NavLink to="/postgres">{t("postgres")}</NavLink>
+          <NavLink to="/ci">{t("ci")}</NavLink>
         </nav>
         <main className={styles.main}>{children}</main>
         <footer className={styles.footer}>

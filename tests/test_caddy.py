@@ -40,6 +40,30 @@ class CaddyRouteTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 updated_config(text, {})
 
+    def test_second_managed_route_keeps_the_logs_route_and_is_idempotent(self):
+        ci = {"name": "woodpecker", "domain": "ci.example.test", "upstream": "woodpecker-server:8000",
+              "project": "woodpecker", "service": "server", "alias": "woodpecker-server"}
+        logs = updated_config('auth.example.test {\n    respond ok\n}\n', {})
+        both = updated_config(logs, adapted_route(UPSTREAM), ci)
+        self.assertTrue(both.startswith(logs))
+        self.assertIn('# BEGIN woodpecker managed route\nci.example.test {\n    reverse_proxy woodpecker-server:8000\n}\n# END woodpecker managed route\n', both)
+        self.assertEqual(updated_config(both, {}, ci), both)
+        self.assertEqual(updated_config(both, adapted_route(UPSTREAM)), both)
+        moved = updated_config(both, {}, dict(ci, domain="build.example.test"))
+        self.assertNotIn("ci.example.test", moved)
+        self.assertEqual(moved.count("managed route"), 4)
+        with self.assertRaises(RuntimeError):
+            updated_config('ci.example.test { respond private }\n', {}, ci)
+
+    def test_unsafe_route_settings_are_rejected(self):
+        ci = {"name": "woodpecker", "domain": "ci.example.test", "upstream": "woodpecker-server:8000",
+              "project": "woodpecker", "service": "server", "alias": "woodpecker-server"}
+        for change in [{"domain": "ci.example.test {\n respond x\n}"}, {"upstream": "evil:80\n}"}, {"name": "x\ny"},
+                       {"project": "a b"}, {"alias": ""}, {"service": None}]:
+            with self.subTest(change=repr(change)):
+                with self.assertRaises(RuntimeError):
+                    updated_config('', {}, dict(ci, **change))
+
     def test_only_persistent_mounts_with_safe_paths_are_accepted(self):
         mounts = [
             {'Type': 'bind', 'Source': '/opt/caddy', 'Destination': '/etc/caddy'},

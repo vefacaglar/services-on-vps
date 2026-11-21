@@ -1,0 +1,293 @@
+/* CI pages reuse the Meilisearch module for cards, tables and status dots;
+   this file only adds what is specific to builds, steps and logs. */
+.ok {
+  color: var(--success);
+}
+.bad {
+  color: var(--error);
+}
+.run {
+  color: var(--info);
+}
+.wait,
+.warn {
+  color: var(--warning);
+}
+.off {
+  color: var(--muted);
+}
+.run::before {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+.badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.available {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.available li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 52px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.available li:last-child {
+  border-bottom: 0;
+}
+.available button {
+  flex: 0 0 auto;
+  padding: 5px 14px;
+}
+.availableName {
+  min-width: 0;
+  color: var(--heading);
+  overflow-wrap: anywhere;
+}
+.message {
+  display: block;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 24px;
+  align-items: start;
+}
+.form > label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.form input,
+.form select {
+  width: 100%;
+  font-size: 14px;
+  color: var(--text);
+}
+.hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.variables,
+.form > :global(.error),
+.formActions {
+  grid-column: 1 / -1;
+}
+.form > :global(.error) {
+  margin: 0;
+}
+.variables {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  min-width: 0;
+}
+.variables legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.variables > :global(.text-button) {
+  font-size: 12px;
+  color: var(--accent);
+}
+.variable {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+  gap: 8px;
+  width: 100%;
+}
+.variable button {
+  width: 38px;
+  padding: 0;
+  color: var(--muted);
+}
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.commitMessage {
+  margin-top: 20px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--border);
+  max-height: 180px;
+  overflow: auto;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+.errors {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  font-size: 13px;
+}
+.errors li {
+  padding: 6px 14px;
+  border-left: 2px solid currentColor;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.split > section {
+  margin-bottom: 24px;
+}
+.workflow + .workflow {
+  margin-top: 22px;
+}
+.workflow h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--heading);
+  overflow-wrap: anywhere;
+}
+.workflow ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.workflow li button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 12px;
+  align-items: baseline;
+  width: 100%;
+  padding: 9px 10px 9px 12px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  text-align: left;
+  font-size: 13px;
+}
+.workflow li:last-child button {
+  border-bottom-color: transparent;
+}
+.workflow li button:hover {
+  background: var(--surface);
+}
+.workflow li button[aria-pressed="true"] {
+  border-left-color: var(--accent);
+  background: var(--surface);
+}
+.stepName {
+  color: var(--heading);
+  overflow-wrap: anywhere;
+}
+.stepMeta {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--muted);
+}
+.stepError {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--error);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.log {
+  min-width: 0;
+}
+.lines {
+  max-height: 70dvh;
+  min-height: 120px;
+  overflow: auto;
+  padding: 12px 14px 12px 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.6;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  white-space: pre;
+  tab-size: 4;
+}
+.lines:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.line {
+  display: block;
+  border-left: 2px solid transparent;
+}
+.lineNumber {
+  display: inline-block;
+  min-width: 5ch;
+  margin-right: 14px;
+  text-align: right;
+  color: var(--muted);
+  opacity: 0.7;
+  user-select: none;
+}
+.stderr {
+  color: var(--error);
+  border-left-color: var(--error);
+}
+.exit,
+.meta,
+.progress {
+  color: var(--muted);
+  font-style: italic;
+}
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
+@media (max-width: 780px) {
+  .form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .variable {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+  .lines {
+    max-height: 60dvh;
+    font-size: 11px;
+  }
+  .lineNumber {
+    min-width: 4ch;
+    margin-right: 10px;
+  }
+}

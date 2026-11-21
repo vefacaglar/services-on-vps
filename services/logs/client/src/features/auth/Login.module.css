@@ -29,6 +29,11 @@
   margin: 8px 0 24px;
   min-height: 44px;
 }
+.help {
+  font-size: 10px;
+  color: var(--muted);
+  margin: -16px 0 24px;
+}
 .passwordLabel {
   display: flex;
   align-items: center;

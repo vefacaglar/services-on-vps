@@ -50,6 +50,33 @@ class BrowserBundleTests(unittest.TestCase):
         prepare(self.directory, {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password"}, lambda _: TEST_HASH)
         self.assertNotIn("MEILI_MASTER_KEY", credentials.read_text())
 
+    def test_totp_secret_is_added_only_to_private_browser_env(self):
+        secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        base = {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password"}
+        # Grouped, lower-case and padded forms are stored in canonical form.
+        for value in [secret, "gezd gnbv gy3t qojq gezd gnbv gy3t qojq", "GEZD-GNBV-GY3T-QOJQ-GEZD-GNBV-GY3T-QOJQ", secret + "="]:
+            with self.subTest(value=value):
+                self.assertTrue(prepare(self.directory, dict(base, LOGS_UI_TOTP_SECRET=value), lambda _: TEST_HASH))
+                credentials = self.directory / "browser.env"
+                self.assertIn(f"LOGS_UI_TOTP_SECRET={secret}\n", credentials.read_text())
+                self.assertEqual(credentials.stat().st_mode & 0o777, 0o600)
+                for other in self.directory.iterdir():
+                    if other != credentials:
+                        self.assertNotIn(secret, other.read_text(), other.name)
+        # Removing the secret turns the second factor off again.
+        prepare(self.directory, base, lambda _: TEST_HASH)
+        self.assertNotIn("LOGS_UI_TOTP_SECRET", (self.directory / "browser.env").read_text())
+
+    def test_unsafe_totp_secret_is_rejected_without_echoing_it(self):
+        for secret in ["JBSWY3DPEHPK3PXP", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJ1", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\nX=1",
+                       "GEZDGNBVGY3TQOJQGEZDGNBVGY3", "A" * 104, "otpauth://totp/logs?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"]:
+            with self.subTest(length=len(secret)):
+                with self.assertRaises(ValueError) as caught:
+                    prepare(self.directory, {"LOGS_UI_USERNAME": "vefa", "LOGS_UI_PASSWORD": "private-test-password",
+                                             "LOGS_UI_TOTP_SECRET": secret}, lambda _: TEST_HASH)
+                self.assertNotIn(secret[:16], str(caught.exception))
+        self.assertFalse((self.directory / "browser.env").exists())
+
     def test_unsafe_meilisearch_key_is_rejected(self):
         for key in ["short", "has space in the middle!!", "newline-key-123456\n", "k" * 513]:
             with self.subTest(length=len(key)), self.assertRaises(ValueError):

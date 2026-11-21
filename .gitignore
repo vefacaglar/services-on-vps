@@ -11,3 +11,6 @@ services/logs/client/node_modules/
 services/logs/console/static/*
 !services/logs/console/static/README.txt
 meilisearch.env
+services/woodpecker/server.env
+services/woodpecker/agent.env
+caddy-settings.json

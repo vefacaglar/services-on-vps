@@ -35,9 +35,12 @@ const pgKeys: Record<string, Key> = {
   blocked_statement: "pgBlocked",
   invalid_row: "pgInvalidRow",
 };
+const ciKeys: Record<string, Key> = {
+  not_configured: "ciNotConfigured",
+};
 // Mapped codes whose server message names the offending function or column.
 const keepDetails = new Set(["blocked_statement", "invalid_row"]);
-// Meilisearch and PostgreSQL routes return {error, code}; keep the engine's
+// Meilisearch, PostgreSQL and CI routes return {error, code}; keep the engine's
 // own message (e.g. an invalid filter or SQL error) as details. Other routes
 // keep generic messages.
 export async function serviceError(
@@ -98,6 +101,8 @@ export async function api<T>(
     else if (path.startsWith("/api/meili/")) throw await meiliError(response);
     else if (path.startsWith("/api/pg/"))
       throw await serviceError(response, pgKeys, "queryError");
+    else if (path.startsWith("/api/ci/"))
+      throw await serviceError(response, ciKeys, "ciRequestRejected");
     const key: Key =
       response.status === 401
         ? path === "/api/login"

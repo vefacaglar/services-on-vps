@@ -1,5 +1,5 @@
 name: Services CI and deploy
-# Verifies and deploys every service under services/ (logs, Meilisearch).
+# Verifies and deploys every service under services/ (logs, Meilisearch, Woodpecker CI).
 
 on:
   pull_request:
@@ -73,11 +73,28 @@ jobs:
           started=$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose -f services/meilisearch/compose.yml ps -q meilisearch)")
           ./services/meilisearch/scripts/start.sh
           test "$started" = "$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose -f services/meilisearch/compose.yml ps -q meilisearch)")"
+      - name: Verify Woodpecker CI with ephemeral secrets
+        env:
+          LOGS_PROXY_NETWORK: woodpecker-ci
+          WOODPECKER_GITHUB_CLIENT: ci-placeholder-client
+          WOODPECKER_GITHUB_SECRET: ci-placeholder-secret-0000
+          WOODPECKER_ADMIN: ci-placeholder
+        run: |
+          docker network create woodpecker-ci
+          # Same files the deploy writes; the OAuth app is a placeholder, so
+          # this checks start-up, agent registration and that the API is closed.
+          WOODPECKER_AGENT_SECRET=$(openssl rand -hex 32) python3 scripts/prepare-woodpecker.py services/woodpecker
+          ./services/woodpecker/scripts/start.sh
+          # A second run with unchanged config must not restart a running build agent.
+          started=$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose -f services/woodpecker/compose.yml ps -q agent)")
+          ./services/woodpecker/scripts/start.sh
+          test "$started" = "$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose -f services/woodpecker/compose.yml ps -q agent)")"
       - name: Show service diagnostics
         if: failure()
         run: |
           docker compose -f services/logs/compose.yml logs --tail=60
           docker compose -f services/meilisearch/compose.yml logs --tail=60 || true
+          LOGS_PROXY_NETWORK=woodpecker-ci docker compose -f services/woodpecker/compose.yml logs --tail=60 || true
       - name: Clean up test services
         if: always()
         env:
@@ -88,6 +105,10 @@ jobs:
             docker compose -f services/meilisearch/compose.yml down --volumes --remove-orphans
           fi
           docker network rm meilisearch-ci || true
+          if [ -f services/woodpecker/server.env ]; then
+            LOGS_PROXY_NETWORK=woodpecker-ci docker compose -f services/woodpecker/compose.yml down --volumes --remove-orphans
+          fi
+          docker network rm woodpecker-ci || true
 
   deploy:
     needs: verify
@@ -110,10 +131,17 @@ jobs:
           DEPLOY_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           LOGS_UI_USERNAME: ${{ secrets.LOGS_UI_USERNAME }}
           LOGS_UI_PASSWORD: ${{ secrets.LOGS_UI_PASSWORD }}
+          LOGS_UI_TOTP_SECRET: ${{ secrets.LOGS_UI_TOTP_SECRET }}
           MEILI_MASTER_KEY: ${{ secrets.MEILI_MASTER_KEY }}
           POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
           POSTGRES_READONLY_URL: ${{ secrets.POSTGRES_READONLY_URL }}
           POSTGRES_WRITE_ENABLED: ${{ vars.POSTGRES_WRITE_ENABLED }}
+          WOODPECKER_GITHUB_CLIENT: ${{ secrets.WOODPECKER_GITHUB_CLIENT }}
+          WOODPECKER_GITHUB_SECRET: ${{ secrets.WOODPECKER_GITHUB_SECRET }}
+          WOODPECKER_AGENT_SECRET: ${{ secrets.WOODPECKER_AGENT_SECRET }}
+          WOODPECKER_API_TOKEN: ${{ secrets.WOODPECKER_API_TOKEN }}
+          WOODPECKER_ADMIN: ${{ vars.WOODPECKER_ADMIN }}
+          WOODPECKER_DOMAIN: ${{ vars.WOODPECKER_DOMAIN }}
           LOGS_PROXY_NETWORK: ${{ vars.LOGS_PROXY_NETWORK }}
           LOGS_CADDY_CONTAINER: ${{ vars.LOGS_CADDY_CONTAINER }}
           LOGS_CADDY_CONFIG_PATH: ${{ vars.LOGS_CADDY_CONFIG_PATH }}

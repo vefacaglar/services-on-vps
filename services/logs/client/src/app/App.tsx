@@ -12,6 +12,7 @@ const Overview = lazy(() => import("../features/overview/Overview"));
 const System = lazy(() => import("../features/system/System"));
 const Meilisearch = lazy(() => import("../features/meilisearch/Meilisearch"));
 const Postgres = lazy(() => import("../features/postgres/Postgres"));
+const Ci = lazy(() => import("../features/ci/CiSection"));
 function Loading() {
   const { t } = usePreferences();
   return (
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="system" element={<System />} />
           <Route path="meilisearch/*" element={<Meilisearch />} />
           <Route path="postgres/*" element={<Postgres />} />
+          <Route path="ci/*" element={<Ci />} />
         </Route>
         <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>

@@ -13,7 +13,9 @@ Repo'da `Settings → Environments → logs-production → Environment secrets` 
 | `LOGS_UI_USERNAME` | Giriş kullanıcı adı, örneğin `vefa`. 1–64 karakter; harf, sayı, `_` veya `-`. |
 | `LOGS_UI_PASSWORD` | Senin belirlediğin güçlü şifre. 12–72 UTF-8 byte; başta/sonda boşluk veya satır sonu olmamalı. ASCII bir şifre için 12–72 karakter. |
 
-Şifreyi sohbete veya repo'ya koyma. Workflow şifreyi Caddy'ye stdin üzerinden verip bcrypt hash'i üretir. VPS'e yalnız kullanıcı adı ve hash (ve varsa konsolun Meilisearch ve PostgreSQL bölümleri için `MEILI_MASTER_KEY` ile `POSTGRES_URL`) içeren `services/logs/browser.env` dosyası gider; dosya modu `600`dür. Açık şifre komut argümanına veya dosyaya yazılmaz. `browser.env` ve üretilen `compose.override.yml` Git tarafından yok sayılır.
+İsteğe bağlı üçüncü secret `LOGS_UI_TOTP_SECRET` girişe ikinci faktör ekler; kurulumu [aşağıda](#totp-ile-ikinci-faktör).
+
+Şifreyi sohbete veya repo'ya koyma. Workflow şifreyi Caddy'ye stdin üzerinden verip bcrypt hash'i üretir. VPS'e yalnız kullanıcı adı ve hash (ve varsa `LOGS_UI_TOTP_SECRET` ile konsolun Meilisearch ve PostgreSQL bölümleri için `MEILI_MASTER_KEY` ile `POSTGRES_URL`) içeren `services/logs/browser.env` dosyası gider; dosya modu `600`dür. Açık şifre komut argümanına veya dosyaya yazılmaz. `browser.env` ve üretilen `compose.override.yml` Git tarafından yok sayılır.
 
 Güncel dosyaları `main`e gönderip `Services CI and deploy` workflow'unu çalıştır. Her iki secret da boşsa önceki loopback kurulumu devam eder. Yalnız biri girilmişse deploy hata verir. İkisi varsa korumalı browser servisi eklenir. İkisini birden kaldırmak sonraki deploy'da browser servisini kapatır; mevcut Caddy route'u bu durumda 502 verir, VictoriaLogs açığa çıkmaz.
 
@@ -59,7 +61,48 @@ Editörün dinamik stil etiketleri HTML başına üretilen CSP nonce'u kullanır
 
 Kayıtlar 100'er yüklenir. Aşağı kaydırmak veya `daha eski kayıtlar` düğmesine basmak sonraki sayfayı getirir. Başlangıç/bitiş zamanı sayfalar arasında sabit kalır; `yenile` yeni bir zaman aralığı açar. Eşit zaman damgaları stream ve mesaj ile sıralanır. Geç gelen geçmiş logların depoya eklenmesi veya retention silmeleri sırasında offset sayfalama gerçek bir veritabanı snapshot'ı değildir; tam aktarım garantisi vermez. Otomatik yenileme 5 saniyede bir çalışır; eski sayfalara geçildiğinde, bir log detayı açıkken veya sekme arka plandayken bekler. Sorgu başına 20 saniye ve geçmişte 1.000.000 offset sınırı vardır; çok geniş aralıkları daralt.
 
-Oturum çerezi `Secure`, `HttpOnly`, `SameSite=Strict` ve `__Host-` öneki kullanır; 12 saat sonra sona erer. Oturumlar bellekte tutulur, servis yeniden başladığında yeniden giriş gerekir. Çıkış oturumu sunucuda iptal eder. Giriş denemeleri aşağıdaki brute-force korumasıyla sınırlıdır. Giriş, çıkış ve özel API POST istekleri aynı Origin ve özel istek başlığı gerektirir. Kullanıcı adı/şifre ve loglar tarayıcı depolamasına yazılmaz.
+Oturum çerezi `Secure`, `HttpOnly`, `SameSite=Strict` ve `__Host-` öneki kullanır; 12 saat sonra sona erer. Oturumlar bellekte tutulur, servis yeniden başladığında yeniden giriş gerekir. Çıkış oturumu sunucuda iptal eder. Giriş denemeleri aşağıdaki brute-force korumasıyla sınırlıdır. Giriş, çıkış ve özel API POST istekleri aynı Origin ve özel istek başlığı gerektirir. Kullanıcı adı/şifre, doğrulama kodu ve loglar tarayıcı depolamasına yazılmaz.
+
+## TOTP ile ikinci faktör
+
+İsteğe bağlıdır. `LOGS_UI_TOTP_SECRET` secret'ı tanımlıysa giriş formu şifreyle birlikte authenticator uygulamasındaki 6 haneli kodu da ister (RFC 6238: SHA-1, 6 hane, 30 saniye). Secret yoksa giriş yalnız kullanıcı adı ve şifreyle çalışır.
+
+**Kurulum**
+
+1. Mac'te 20 baytlık rastgele bir secret üret (macOS'ta `base32` komutu yoktur; Linux'ta `openssl rand 20 | base32` de olur). Çıktı 32 karakterlik base32 metindir; sohbete, repo'ya veya ekran görüntüsüne koyma:
+
+   ```sh
+   python3 -c 'import base64, secrets; print(base64.b32encode(secrets.token_bytes(20)).decode())'
+   ```
+
+2. Secret'ı authenticator uygulamasına ekle (1Password, Aegis, Google Authenticator, Authy…). "Kurulum anahtarı gir" seçeneğinde hesap adına `logs`, anahtara 1. adımın çıktısını yaz; tür "zamana dayalı" kalsın. QR veya bağlantı isteyen uygulamalar için aynı secret'la şu URI kullanılır:
+
+   ```text
+   otpauth://totp/logs.vefacaglar.com:vefa?secret=<SECRET>&issuer=logs.vefacaglar.com&algorithm=SHA1&digits=6&period=30
+   ```
+
+   QR'ı çevrimiçi bir sitede üretme; secret o siteye gider. Yerelde `qrencode -t ANSIUTF8 '<URI>'` yeterlidir.
+
+3. Aynı değeri `Settings → Environments → logs-production → Environment secrets` altına `LOGS_UI_TOTP_SECRET` adıyla ekle. Değer 16–64 baytlık base32 olmalı (26–103 karakter; boşluk, tire ve küçük harf kabul edilir). Geçersizse deploy VPS'e bağlanmadan durur.
+4. `Services CI and deploy → Run workflow` çalıştır. Deploy bitince giriş sayfasında `Doğrulama kodu` alanı görünür.
+5. Secret'ı kaydettiğin yerden başka bir yere not etme; yedek gerekiyorsa şifre yöneticinde tut.
+
+**Davranış**
+
+- Secret yalnız mod `600` olan `services/logs/browser.env` dosyasında durur; komut argümanına, loga veya tarayıcıya gitmez. Giriş sayfası yalnız "kod gerekiyor mu" bilgisini `GET /api/login` ile öğrenir.
+- Yanlış kod yanlış şifre gibi işlenir: aynı `401` yanıtı ve aynı hata metni döner, aşağıdaki IP kilidine sayılır. Yanıttan şifrenin doğru olup olmadığı anlaşılmaz.
+- Saat kayması için bir önceki ve bir sonraki 30 saniyelik kod da kabul edilir. Telefonun saati bundan fazla kayarsa kod reddedilir; otomatik saat ayarını aç.
+- Her kod bir kez kullanılır. Kabul edilen kod ve ondan eski kodlar yeniden kabul edilmez; hemen ardından ikinci bir giriş için yeni kodu bekle (en fazla 30 saniye). Bu kayıt bellekte tutulur, servis yeniden başlayınca sıfırlanır.
+
+**Telefon kaybolursa**
+
+Giriş için başka bir yol yoktur; kurtarma GitHub üzerinden yapılır:
+
+1. `LOGS_UI_TOTP_SECRET` secret'ını sil (`Environment secrets → Delete`).
+2. `Run workflow` ile yeniden deploy et. Giriş yalnız şifreyle çalışır, eski oturumlar sona erer.
+3. Yeni bir secret üretip kurulum adımlarını tekrarla. Eski secret artık geçersizdir.
+
+Secret sızdıysa da aynı yolu izle: yeni secret üret, GitHub'da güncelle, deploy et, uygulamadaki eski kaydı sil. Eski release'e rollback o release'in secret'ını (veya secret'sız halini) geri getirir.
 
 ## Brute-force koruması
 
@@ -89,6 +132,6 @@ cd ../console
 go test -race ./...
 ```
 
-`npm run build` çıktıyı `services/logs/console/static/` içine üretir; derlenmiş asset'ler Git'e alınmaz. `LOGS_UI_USERNAME` ve bcrypt `LOGS_UI_PASSWORD_HASH` ile `go run .` servisi başlatır. Yalnız HTTP yerel testleri için `LOGS_INSECURE_COOKIE=1` kullanılabilir; üretim Compose dosyası bu ayarı içermez. İsteğe bağlı `LOGS_LISTEN` ve `VICTORIALOGS_URL` yerel portları ayarlar. HMR için ikinci terminalde `cd services/logs/client && npm run dev` kullan; Vite API isteklerini `127.0.0.1:18080` adresindeki Go servisine geçirir. Docker varsa repo kökünde `RUN_BROWSER_TEST=1 python3 -m unittest discover -s tests -p 'test_browser.py' -v` gerçek container kontrolünü çalıştırır. CI client test/build, Go race testleri, Linux deploy testleri ve gerçek Docker ingestion/giriş/API izolasyonunu doğrular.
+`npm run build` çıktıyı `services/logs/console/static/` içine üretir; derlenmiş asset'ler Git'e alınmaz. `LOGS_UI_USERNAME` ve bcrypt `LOGS_UI_PASSWORD_HASH` ile `go run .` servisi başlatır; `LOGS_UI_TOTP_SECRET` verilirse ikinci faktör yerelde de açılır. Yalnız HTTP yerel testleri için `LOGS_INSECURE_COOKIE=1` kullanılabilir; üretim Compose dosyası bu ayarı içermez. İsteğe bağlı `LOGS_LISTEN` ve `VICTORIALOGS_URL` yerel portları ayarlar. HMR için ikinci terminalde `cd services/logs/client && npm run dev` kullan; Vite API isteklerini `127.0.0.1:18080` adresindeki Go servisine geçirir. Docker varsa repo kökünde `RUN_BROWSER_TEST=1 python3 -m unittest discover -s tests -p 'test_browser.py' -v` gerçek container kontrolünü çalıştırır. CI client test/build, Go race testleri, Linux deploy testleri ve gerçek Docker ingestion/giriş/API izolasyonunu doğrular.
 
 Resmi kaynaklar: [Caddy şifre hash'leme](https://caddyserver.com/docs/command-line#caddy-hash-password), [VictoriaLogs sorgu API'si](https://docs.victoriametrics.com/victorialogs/querying/), [VictoriaLogs sorgu yetkisi](https://docs.victoriametrics.com/victorialogs/security-and-lb/#search-authorization).

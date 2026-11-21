@@ -9,6 +9,8 @@ Bu repo VPS'teki uygulamaların ortak kullandığı sunucu altyapısını tutar.
 | Loglar | [services/logs](services/logs/README.md) | VictoriaLogs + Vector ile tüm container loglarını toplar; `logs.vefacaglar.com` üzerinde şifreli log konsolu ve `Sistem` sayfası (bellek, CPU, disk) salt okunur Meilisearch inceleyicisi ve onaylı yazma modlu PostgreSQL inceleyicisi ([PostgreSQL kurulumu](docs/postgres-inspector.md)). |
 | Meilisearch | [services/meilisearch](services/meilisearch/README.md) | Uygulamaların ortak arama motoru; ortak Docker ağında `http://meilisearch:7700`. |
 
+| Woodpecker CI | [services/woodpecker](services/woodpecker/README.md) | Private repo'ları GitHub Actions dakikası harcamadan VPS'te build/deploy eden CI; log konsolunun `CI` sekmesinden repo, branch ve ortam seçilerek elle başlatılır. Kendi arayüzü `ci.vefacaglar.com`. |
+
 Typesense şimdilik elle kurulu kalır ve bu repo tarafından yönetilmez; uygulamalar Meilisearch'e taşınınca kaldırılacak.
 
 ## Dizinler
@@ -22,7 +24,7 @@ tests/               deploy, Caddy ve container entegrasyon testleri
 
 ## Deploy
 
-`main`e gelen her değişiklik [GitHub Actions](.github/workflows/logs.yml) ile test edilir: React client ve Go konsolu testleri, deploy script testleri, gerçek Docker log toplama ve browser testleri, geçici anahtarla Meilisearch sağlık/anahtar kontrolü. Sonra `scripts/ssh-deploy.sh` yalnız izinli dosyaları ve secret'lardan üretilen mod `600` dosyaları VPS'te `releases/<id>/` altına yükler; `scripts/activate.sh` ortak `.env` dosyasını her servise bağlar, `scripts/start.sh` ile servisleri sırayla başlatıp doğrular ve başarılıysa `current` symlink'ini yeni release'e çevirir. Başarısızlıkta önceki release'in `scripts/start.sh`'ı çalıştırılır.
+`main`e gelen her değişiklik [GitHub Actions](.github/workflows/logs.yml) ile test edilir: React client ve Go konsolu testleri, deploy script testleri, gerçek Docker log toplama ve browser testleri, geçici anahtarla Meilisearch sağlık/anahtar kontrolü, geçici secret'larla Woodpecker sunucu/agent başlangıç kontrolü. Sonra `scripts/ssh-deploy.sh` yalnız izinli dosyaları ve secret'lardan üretilen mod `600` dosyaları VPS'te `releases/<id>/` altına yükler; `scripts/activate.sh` ortak `.env` dosyasını her servise bağlar, `scripts/start.sh` ile servisleri sırayla başlatıp doğrular ve başarılıysa `current` symlink'ini yeni release'e çevirir. Başarısızlıkta önceki release'in `scripts/start.sh`'ı çalıştırılır.
 
 Kurulum, secret'lar ve VPS hazırlığı: [GitHub deploy rehberi](docs/github-deploy.md). Log arayüzü ve Caddy: [browser rehberi](docs/browser-access.md).
 

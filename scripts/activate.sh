@@ -40,13 +40,18 @@ activate_release() {
   if [[ -f "$release/services/logs/browser.env" ]]; then
     python3 "$release/scripts/configure-caddy.py" "$settings" "$base/caddy-backups" || return 1
   fi
+  # Woodpecker needs its own public host for the GitHub OAuth callback and webhooks.
+  settings="$release/services/woodpecker/caddy-settings.json"
+  if [[ -f "$release/services/woodpecker/server.env" ]]; then
+    python3 "$release/scripts/configure-caddy.py" "$settings" "$base/caddy-backups" || return 1
+  fi
 }
 
 if ! activate_release; then
   echo 'Deployment failed.' >&2
   if [[ -n $previous && $previous != "$release" ]]; then
     # Older releases start only the logs stack; services they do not know
-    # (e.g. Meilisearch) keep their current containers and data volumes.
+    # (e.g. Meilisearch, Woodpecker) keep their current containers and volumes.
     echo 'Restoring previous release...' >&2
     if ! "$previous/scripts/start.sh"; then
       echo 'Rollback also failed; inspect Docker services on the VPS.' >&2

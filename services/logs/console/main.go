@@ -47,6 +47,12 @@ type server struct {
 	meiliClient                       *http.Client
 	meiliSlots                        chan struct{}
 	pg                                *pgState
+	ciURL, ciToken, ciPublicURL       string
+	ciClient                          *http.Client
+	ciSlots                           chan struct{}
+	totpKey                           []byte // nil: second factor is off
+	totpUsed                          int64  // last accepted TOTP time step
+	now                               func() time.Time
 }
 
 func newServer(username, hash, upstream string, insecure bool) (*server, error) {
@@ -61,10 +67,12 @@ func newServer(username, hash, upstream string, insecure bool) (*server, error) 
 		return nil, fmt.Errorf("invalid VICTORIALOGS_URL")
 	}
 	s := &server{username: username, passwordHash: hash, upstream: upstream, insecure: insecure,
-		client: &http.Client{Timeout: 25 * time.Second}, sessions: make(map[[32]byte]time.Time), loginSlot: make(chan struct{}, 4), loginGuard: newLoginGuard(), compareHash: bcrypt.CompareHashAndPassword, querySlots: make(chan struct{}, 2),
+		client: &http.Client{Timeout: 25 * time.Second}, sessions: make(map[[32]byte]time.Time), loginSlot: make(chan struct{}, 4), loginGuard: newLoginGuard(), now: time.Now, compareHash: bcrypt.CompareHashAndPassword, querySlots: make(chan struct{}, 2),
 		cgroupRoot: "/host/cgroup", meminfoPath: "/proc/meminfo", diskPath: "/", sys: systemState{cpu: make(map[string]cpuSample)},
 		meiliURL: "http://meilisearch:7700", meiliSlots: make(chan struct{}, 4),
-		meiliClient: &http.Client{Timeout: meiliTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+		meiliClient: &http.Client{Timeout: meiliTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		ciURL:       "http://woodpecker-server:8000", ciSlots: make(chan struct{}, 4),
+		ciClient: &http.Client{Timeout: ciTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	s.configurePostgres("")
 	s.proxy = httputil.NewSingleHostReverseProxy(u)
 	director := s.proxy.Director
@@ -164,6 +172,12 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Code     string `json:"code"`
+	}
+	// One message for every rejected attempt, so a wrong code never confirms the password.
+	rejected := "Kullanıcı adı veya şifre yanlış."
+	if s.totpKey != nil {
+		rejected = "Kullanıcı adı, şifre veya kod yanlış."
 	}
 	defer func() {
 		if finished {
@@ -185,8 +199,8 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		s.loginGuard.cancel(ip)
 		return
 	}
-	if len(input.Password) > 72 || len(input.Username) > 64 {
-		fail(w, 401, "Kullanıcı adı veya şifre yanlış.")
+	if len(input.Password) > 72 || len(input.Username) > 64 || len(input.Code) > 16 {
+		fail(w, 401, rejected)
 		return
 	}
 	select {
@@ -201,8 +215,17 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	validPassword := s.compareHash([]byte(s.passwordHash), []byte(input.Password)) == nil
 	validUser := subtle.ConstantTimeCompare([]byte(input.Username), []byte(s.username)) == 1
-	if !validPassword || !validUser {
-		fail(w, 401, "Kullanıcı adı veya şifre yanlış.")
+	validCode, step := true, int64(0)
+	if s.totpKey != nil {
+		step, validCode = totpMatch(s.totpKey, input.Code, s.now())
+	}
+	if !validPassword || !validUser || !validCode {
+		fail(w, 401, rejected)
+		return
+	}
+	// Claimed only after everything else passed: a code is burned by a real sign-in alone.
+	if s.totpKey != nil && !s.claimTOTP(step) {
+		fail(w, 401, rejected)
 		return
 	}
 	ok = true
@@ -378,6 +401,12 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/explore", http.StatusSeeOther)
 		return
 	}
+	if path == "/api/login" && r.Method == "GET" {
+		// Lets the sign-in form show the code field before any credentials are sent.
+		w.Header().Set("Cache-Control", "no-store")
+		respond(w, 200, map[string]bool{"totp": s.totpKey != nil})
+		return
+	}
 	if path == "/api/login" && r.Method == "POST" {
 		s.login(w, r)
 		return
@@ -390,10 +419,11 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		servePage(w, "index.html")
 		return
 	}
-	page := path == "/" || path == "/explore" || path == "/overview" || path == "/system" || meiliPage(path) || pgPage(r.URL.EscapedPath())
+	page := path == "/" || path == "/explore" || path == "/overview" || path == "/system" || meiliPage(path) || ciPage(path) || pgPage(r.URL.EscapedPath())
 	meiliAPI := strings.HasPrefix(path, "/api/meili/")
 	pgAPI := strings.HasPrefix(r.URL.EscapedPath(), "/api/pg/")
-	known := page || meiliAPI || pgAPI || path == "/api/session" || path == "/api/system" || path == "/api/logout" || path == "/api/logs" || path == "/api/services" || readAPI[path]
+	ciAPI := strings.HasPrefix(path, "/api/ci/")
+	known := page || meiliAPI || pgAPI || ciAPI || path == "/api/session" || path == "/api/system" || path == "/api/logout" || path == "/api/logs" || path == "/api/services" || readAPI[path]
 	if !known {
 		http.NotFound(w, r)
 		return
@@ -417,6 +447,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.meiliAPI(w, r)
 	case pgAPI:
 		s.pgAPI(w, r)
+	case ciAPI:
+		s.ciAPI(w, r)
 	case path == "/api/session" && r.Method == "GET":
 		respond(w, 200, map[string]string{"username": s.username})
 	case path == "/api/system" && r.Method == "GET":
@@ -489,6 +521,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := s.configureTOTP(os.Getenv("LOGS_UI_TOTP_SECRET")); err != nil {
+		log.Fatal(err)
+	}
+	if s.totpKey != nil {
+		log.Print("Sign-in requires a TOTP code (LOGS_UI_TOTP_SECRET)")
+	}
 	if p := os.Getenv("HOST_CGROUP_PATH"); p != "" {
 		s.cgroupRoot = p
 	}
@@ -505,6 +543,19 @@ func main() {
 		s.meiliURL = p
 	}
 	s.meiliKey = os.Getenv("MEILI_MASTER_KEY")
+	if p := os.Getenv("WOODPECKER_URL"); p != "" {
+		if err := validCIURL(p); err != nil {
+			log.Fatal(err)
+		}
+		s.ciURL = p
+	}
+	s.ciToken = os.Getenv("WOODPECKER_API_TOKEN")
+	if p := os.Getenv("WOODPECKER_PUBLIC_URL"); p != "" {
+		if u, err := url.Parse(p); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+			log.Fatal("invalid WOODPECKER_PUBLIC_URL")
+		}
+		s.ciPublicURL = p
+	}
 	s.configurePostgres(postgresDSN(os.Getenv))
 	if !postgresWriteEnabled(os.Getenv("POSTGRES_WRITE_ENABLED")) {
 		s.pg.writeDisabled = true
