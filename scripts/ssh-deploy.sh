@@ -61,7 +61,7 @@ bundle_paths+=("$logs/client/vite.config.ts" "$logs/client/index.html" "$logs/cl
 bundle_paths+=(services/meilisearch/compose.yml services/meilisearch/.env.example)
 bundle_paths+=(services/meilisearch/README.md services/meilisearch/scripts)
 bundle_paths+=(services/woodpecker/compose.yml services/woodpecker/.env.example)
-bundle_paths+=(services/woodpecker/README.md services/woodpecker/scripts)
+bundle_paths+=(services/woodpecker/README.md services/woodpecker/scripts services/woodpecker/custom.css)
 generated=()
 for file in "$logs/browser.env" "$logs/compose.override.yml" "$logs/browser-settings.json" \
   services/meilisearch/meilisearch.env services/meilisearch/compose.override.yml \

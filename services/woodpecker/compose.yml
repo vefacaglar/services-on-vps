@@ -15,6 +15,9 @@ services:
       # Closed registration: only WOODPECKER_ADMIN logins can sign in.
       WOODPECKER_OPEN: "false"
       WOODPECKER_DISABLE_USER_AGENT_REGISTRATION: "true"
+      # Theme file; scripts/start.sh copies custom.css into the data volume so
+      # a new release changes the look without recreating the container.
+      WOODPECKER_CUSTOM_CSS_FILE: /var/lib/woodpecker/custom.css
       WOODPECKER_LOG_LEVEL: ${WOODPECKER_LOG_LEVEL:-info}
     ports:
       # Health checks and SSH-tunnel access only; Caddy and the log console

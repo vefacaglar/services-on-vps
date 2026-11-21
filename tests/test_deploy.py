@@ -184,7 +184,8 @@ if 'activate.sh' in args[-1]:
                      "services/logs/client/src/main.tsx", "services/logs/client/package-lock.json",
                      "services/logs/scripts/start.sh", "services/logs/vector/vector.yaml",
                      "services/meilisearch/compose.yml", "services/meilisearch/scripts/start.sh",
-                     "services/woodpecker/compose.yml", "services/woodpecker/scripts/start.sh"]:
+                     "services/woodpecker/compose.yml", "services/woodpecker/scripts/start.sh",
+                     "services/woodpecker/custom.css"]:
             self.assertIn(name, names)
         self.assertFalse(any("node_modules" in name for name in names))
         for name in [".env", "services/logs/.env", "services/meilisearch/meilisearch.env",
