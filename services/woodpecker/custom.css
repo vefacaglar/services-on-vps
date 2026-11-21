@@ -67,9 +67,9 @@
 :root[data-theme='dark'] {
   --wp-background-100: #161616;
   --wp-background-200: #0b0b0b;
-  --wp-background-300: #000;
+  --wp-background-300: #23211f;
   --wp-background-400: #2d2d2d;
-  --wp-background-500: #000;
+  --wp-background-500: #23211f;
 
   --wp-text-100: #eaeaea;
   --wp-text-200: #fff;
