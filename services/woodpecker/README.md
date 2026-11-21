@@ -7,7 +7,7 @@ Build'ler iki yerden başlatılır:
 - `https://logs.vefacaglar.com/ci`: log konsolunun `CI` sekmesi. Repo ekleme, branch ve ortam seçip build başlatma, adımları ve logları izleme, iptal.
 - `https://ci.vefacaglar.com`: Woodpecker'ın kendi arayüzü. Secret'lar, repo ayarları ve ilk GitHub girişi buradan yapılır.
 
-Woodpecker'ın arayüzü [custom.css](custom.css) ile vefacaglar.com ve log konsolunun görünümüne (Fira Code, keskin köşeler, bronz vurgu, açık/koyu tema) uyarlanır. Dosya yalnız Woodpecker'ın kendi tema değişkenlerini ve birkaç genel kuralı değiştirir; yerleşim ve davranış Woodpecker'ındır. `scripts/start.sh` dosyayı her deploy'da veri volume'una kopyalar; Woodpecker onu her istekte okuduğu için yeniden başlatma gerekmez. Yazı tipi (Fira Code'un Latin ve Türkçe alt kümesi, SIL OFL) dosyanın sonuna gömülüdür.
+Woodpecker'ın arayüzü [custom.css](custom.css) ile vefacaglar.com ve log konsolunun görünümüne (Fira Code, keskin köşeler, bronz vurgu, açık/koyu tema) uyarlanır. Dosya yalnız Woodpecker'ın kendi tema değişkenlerini ve birkaç genel kuralı değiştirir; yerleşim ve davranış Woodpecker'ındır. [custom.js](custom.js) varsayılan temayı koyu yapar; kullanıcı ayarlarından açık tema yine seçilebilir, yalnız "auto" seçeneği koyuya döner. `scripts/start.sh` iki dosyayı her deploy'da veri volume'una kopyalar; Woodpecker onları her istekte okuduğu için yeniden başlatma gerekmez. Yazı tipi (Fira Code'un Latin ve Türkçe alt kümesi, SIL OFL) dosyanın sonuna gömülüdür.
 
 ## Kurulum
 

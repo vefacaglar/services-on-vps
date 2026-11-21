@@ -22,7 +22,9 @@ fi
 
 # The theme lives in the data volume (the root filesystem is read-only) and is
 # read on every request, so copying it needs no restart.
-docker compose cp custom.css server:/var/lib/woodpecker/custom.css >/dev/null
+for file in custom.css custom.js; do
+  docker compose cp "$file" "server:/var/lib/woodpecker/$file" >/dev/null
+done
 address=$(docker compose port server 8000)
 status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "http://$address/healthz")
 [ "$status" = 204 ] || { echo "Unexpected Woodpecker health status: $status" >&2; exit 1; }
@@ -30,9 +32,11 @@ status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 
 [ "$status" = 401 ] || {
   echo "Unauthenticated /api/user returned $status; the API is not protected." >&2; exit 1;
 }
-theme=$(curl --silent --output /dev/null --write-out '%{http_code} %{size_download}' --max-time 5 "http://$address/assets/custom.css")
-[ "$theme" = "200 $(wc -c < custom.css | tr -d ' ')" ] || {
-  echo "Custom theme is not served as copied: $theme" >&2; exit 1;
-}
+for file in custom.css custom.js; do
+  theme=$(curl --silent --output /dev/null --write-out '%{http_code} %{size_download}' --max-time 5 "http://$address/assets/$file")
+  [ "$theme" = "200 $(wc -c < "$file" | tr -d ' ')" ] || {
+    echo "Theme file $file is not served as copied: $theme" >&2; exit 1;
+  }
+done
 echo 'OK: Woodpecker server and agent are healthy and the API requires a login.'
 printf 'Ready: Woodpecker http://%s (console: http://woodpecker-server:8000)\n' "$address"
